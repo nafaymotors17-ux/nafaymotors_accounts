@@ -5,7 +5,6 @@ import { useState } from "react";
 import TransactionForm from "./TransactionForm";
 import AccountStatement from "./AccountStatement";
 import AccountForm from "./AccountForm";
-import { createTransaction } from "@/lib/accounting-actions/transaction";
 function formatAmount(amount, symbol) {
   return `${symbol || ""}${(amount ?? 0).toLocaleString("en-US", {
     minimumFractionDigits: 2,
@@ -117,9 +116,7 @@ export default function AccountsTable({ accounts }) {
       {showTransactionForm && selectedAccount && (
         <TransactionForm
           account={selectedAccount}
-          handleSubmit={(formData) => {
-            createTransaction(formData);
-          }}
+    
           onClose={() => setShowTransactionForm(false)}
         />
       )}

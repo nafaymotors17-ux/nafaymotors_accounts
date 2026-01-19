@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import connectDB from "@/lib/dbConnect";
-import Account from "@/lib/models/Account";
-import Transaction from "@/lib/models/Transaction";
+import connectDB from "@/app/lib/dbConnect";
+import Account from "@/app/lib/models/Account";
+import Transaction from "@/app/lib/models/Transaction";
 
 import mongoose from "mongoose";
 
@@ -170,7 +170,10 @@ export async function getAllTransactions(filters = {}) {
        Search Filter
     ======================= */
     if (search) {
-      matchStage.details = { $regex: search, $options: "i" };
+      matchStage.$or = [
+        { details: { $regex: search, $options: "i" } },
+        { destination: { $regex: search, $options: "i" } },
+      ];
     }
 
     const skip = (page - 1) * limit;
@@ -201,12 +204,25 @@ export async function getAllTransactions(filters = {}) {
 
             {
               $project: {
-                _id: 1,
-                transactionDate: 1,
+                _id: { $toString: "$_id" }, // Convert ObjectId to string
+                accountId: { $toString: "$accountId" }, // Convert accountId to string
+                transactionDate: {
+                  $dateToString: {
+                    format: "%Y-%m-%dT%H:%M:%S.%LZ",
+                    date: "$transactionDate",
+                  },
+                },
                 credit: 1,
                 debit: 1,
                 details: 1,
-                createdAt: 1,
+                destination: 1,
+                rateOfExchange: 1,
+                createdAt: {
+                  $dateToString: {
+                    format: "%Y-%m-%dT%H:%M:%S.%LZ",
+                    date: "$createdAt",
+                  },
+                },
                 account: {
                   title: "$account.title",
                   slug: "$account.slug",
@@ -227,8 +243,24 @@ export async function getAllTransactions(filters = {}) {
     const transactions = result.data || [];
     const total = result.totalCount[0]?.count || 0;
 
+    // Convert MongoDB aggregation result to plain objects
+    const plainTransactions = transactions.map((transaction) => {
+      const plain = { ...transaction };
+
+      // Ensure all dates are strings
+      if (plain.transactionDate && typeof plain.transactionDate === "object") {
+        plain.transactionDate = plain.transactionDate.toISOString();
+      }
+
+      if (plain.createdAt && typeof plain.createdAt === "object") {
+        plain.createdAt = plain.createdAt.toISOString();
+      }
+
+      return plain;
+    });
+
     return {
-      transactions,
+      transactions: plainTransactions,
       total,
       page,
       totalPages: Math.ceil(total / limit),
@@ -246,67 +278,4 @@ export async function getAllTransactions(filters = {}) {
 
 export async function getAccountTransactions(accountSlug, filters = {}) {
   return getAllTransactions({ ...filters, accountSlug });
-}
-
-export async function getTransactionsForPrint(filters = {}) {
-  await connectDB();
-
-  try {
-    const { startDate, endDate, search, type, accountSlug } = filters;
-
-    const matchStage = { accountSlug };
-
-    // Date Filter
-    if (startDate || endDate) {
-      const dateQuery = {};
-
-      if (startDate) {
-        const start = new Date(startDate);
-        start.setHours(0, 0, 0, 0);
-        dateQuery.$gte = start;
-      }
-
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        dateQuery.$lte = end;
-      }
-
-      matchStage.transactionDate = dateQuery;
-    }
-
-    // Type Filter
-    if (type && type !== "all") {
-      if (type === "credit") {
-        matchStage.credit = { $gt: 0 };
-      } else if (type === "debit") {
-        matchStage.debit = { $gt: 0 };
-      }
-    }
-
-    // Search Filter
-    if (search) {
-      matchStage.details = { $regex: search, $options: "i" };
-    }
-
-    // Get transactions sorted by date
-    const transactions = await Transaction.find(matchStage)
-      .sort({ transactionDate: 1 })
-      .lean();
-
-    return {
-      success: true,
-      transactions,
-      count: transactions.length,
-      generatedAt: new Date().toISOString(),
-    };
-  } catch (error) {
-    console.error("Error fetching print data:", error);
-    return {
-      success: false,
-      error: "Failed to fetch data for printing",
-      transactions: [],
-      count: 0,
-    };
-  }
 }

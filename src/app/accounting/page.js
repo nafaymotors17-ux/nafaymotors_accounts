@@ -1,9 +1,9 @@
 // app/accounting/page.jsx
-import { getAccounts } from "@/lib/accounting-actions/accounts";
+import { getAccounts } from "@/app/lib/accounting-actions/accounts";
 import AccountsTable from "./components/AccountsTable";
 
 export default async function AccountingPage({ searchParams }) {
-  const params = searchParams;
+  const params = await searchParams;
   const accountsResult = await getAccounts(params);
   const accounts = accountsResult.accounts || [];
 

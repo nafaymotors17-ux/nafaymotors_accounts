@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createAccount } from "@/lib/accounting-actions/accounts";
+import { createAccount } from "@/app/lib/accounting-actions/accounts";
 
 export default function AccountForm({ onClose }) {
   const router = useRouter();

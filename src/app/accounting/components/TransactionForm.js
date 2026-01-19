@@ -1,6 +1,6 @@
 "use client";
 
-import { createTransaction } from "@/lib/accounting-actions/transaction";
+import { createTransaction } from "@/app/lib/accounting-actions/transaction";
 import { useState } from "react";
 import {
   X,
@@ -245,7 +245,7 @@ export default function TransactionFormClient({ account, onClose }) {
             </div>
 
             {/* Exchange Rate - Tighter layout */}
-            <div className="p-3 bg-orange-50/50 border border-orange-100 rounded-lg space-y-2">
+            {/* <div className="p-3 bg-orange-50/50 border border-orange-100 rounded-lg space-y-2">
               <label className="text-[10px] uppercase tracking-wider font-bold text-orange-800 flex items-center gap-1.5">
                 <RefreshCw className="w-3 h-3" /> Exchange Rate (Optional)
               </label>
@@ -262,7 +262,7 @@ export default function TransactionFormClient({ account, onClose }) {
                   PER USD
                 </span>
               </div>
-            </div>
+            </div> */}
 
             {/* Fixed Footer */}
             <div className="pt-4 border-t bg-white flex items-center justify-end gap-3">

@@ -26,15 +26,6 @@ export default function RootLayout({ children }) {
             <Link href="/accounting" className="hover:text-blue-600">
               Accounts
             </Link>
-            <Link href="/inventory" className="hover:text-blue-600">
-              Inventory
-            </Link>
-            <Link href="/reports" className="hover:text-blue-600">
-              Reports
-            </Link>
-            <Link href="/settings" className="hover:text-blue-600">
-              Settings
-            </Link>
           </div>
         </nav>
         <main className="min-h-screen bg-gray-100 pt-16">{children}</main>

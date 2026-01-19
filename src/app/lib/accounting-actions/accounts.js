@@ -2,18 +2,19 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import connectDB from "@/lib/dbConnect";
-import Account from "@/lib/models/Account";
+import connectDB from "@/app/lib/dbConnect";
+import Account from "@/app/lib/models/Account";
 export async function getAccounts(searchParams = {}) {
   await connectDB();
 
-  const search =
-    typeof searchParams === "string" ? searchParams : searchParams?.search;
-  const currency = searchParams?.currency;
-  const status = searchParams?.status;
+  const page = parseInt(searchParams.page) || 1;
+  const limit = parseInt(searchParams.limit) || 10;
+  const search = searchParams.search || "";
+  const currency = searchParams.currency || "";
 
   const query = {};
 
+  // Search filter
   if (search) {
     query.$or = [
       { title: { $regex: search, $options: "i" } },
@@ -21,18 +22,57 @@ export async function getAccounts(searchParams = {}) {
     ];
   }
 
+  // Currency filter
   if (currency && currency !== "all") {
     query.currency = currency;
   }
 
   try {
-    const accounts = await Account.find(query).sort({ createdAt: -1 }).lean();
+    // Get total count for pagination
+    const total = await Account.countDocuments(query);
 
-    return { accounts: JSON.parse(JSON.stringify(accounts)) };
+    // Calculate pagination
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+
+    // Get paginated accounts
+    const accounts = await Account.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    return {
+      accounts: JSON.parse(JSON.stringify(accounts)),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    };
   } catch (error) {
     console.error("Error fetching accounts:", error);
-    return { accounts: [] };
+    return {
+      accounts: [],
+      pagination: {
+        page: 1,
+        limit: 10,
+        total: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPrevPage: false,
+      },
+    };
   }
+}
+export async function getAccountsCount() {
+  try {
+    const totalAccounts = await Account.countDocuments();
+    return totalAccounts;
+  } catch (error) {}
 }
 export async function createAccount(formData) {
   await connectDB();
