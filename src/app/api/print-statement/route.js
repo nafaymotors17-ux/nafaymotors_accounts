@@ -24,14 +24,52 @@ export async function POST(request) {
       return NextResponse.json({ error: "Account not found" }, { status: 404 });
     }
 
-    // Build query for transactions
+    // Calculate opening balance from transactions before the start date
+    let openingBalance = account.initialBalance || 0;
+    
+    if (filters.startDate) {
+      const startDate = new Date(filters.startDate);
+      startDate.setHours(0, 0, 0, 0);
+      
+      // Get all transactions before the start date to calculate opening balance
+      const priorTransactions = await Transaction.find({
+        accountSlug,
+        transactionDate: { $lt: startDate },
+      })
+        .sort({ transactionDate: 1 })
+        .lean();
+
+      // Calculate opening balance from prior transactions
+      priorTransactions.forEach((transaction) => {
+        const credit = transaction.credit || 0;
+        const debit = transaction.debit || 0;
+        openingBalance = openingBalance + credit - debit;
+      });
+    }
+
+    // Build query for transactions in the date range
     const query = { accountSlug };
 
     // Apply date filters
     if (filters.startDate && filters.endDate) {
+      const startDate = new Date(filters.startDate);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(filters.endDate);
+      endDate.setHours(23, 59, 59, 999);
+      
       query.transactionDate = {
-        $gte: new Date(filters.startDate),
-        $lte: new Date(filters.endDate),
+        $gte: startDate,
+        $lte: endDate,
+      };
+    } else if (filters.startDate) {
+      const startDate = new Date(filters.startDate);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(filters.startDate);
+      endDate.setHours(23, 59, 59, 999);
+      
+      query.transactionDate = {
+        $gte: startDate,
+        $lte: endDate,
       };
     }
 
@@ -43,13 +81,13 @@ export async function POST(request) {
       ];
     }
 
-    // Get transactions
+    // Get transactions sorted by date (oldest first for bank statement)
     const transactions = await Transaction.find(query)
-      .sort({ transactionDate: 1 })
+      .sort({ transactionDate: 1, createdAt: 1 })
       .lean();
 
-    // Calculate current balance (starting from initial balance)
-    let currentBalance = account.initialBalance || 0;
+    // Calculate running balance starting from opening balance
+    let currentBalance = openingBalance;
     const transactionsWithCalculatedBalance = transactions.map(
       (transaction) => {
         const credit = transaction.credit || 0;
@@ -67,7 +105,8 @@ export async function POST(request) {
     return NextResponse.json({
       success: true,
       transactions: transactionsWithCalculatedBalance,
-      currentBalance: currentBalance, // Final balance after all transactions
+      openingBalance: openingBalance, // Balance at the start of the period
+      closingBalance: currentBalance, // Final balance after all transactions in period
       account: {
         title: account.title,
         slug: account.slug,

@@ -4,10 +4,19 @@ import { revalidatePath } from "next/cache";
 import connectDB from "@/app/lib/dbConnect";
 import Account from "@/app/lib/models/Account";
 import Transaction from "@/app/lib/models/Transaction";
+import { requireSuperAdmin } from "@/app/lib/auth/getSession";
 
 import mongoose from "mongoose";
 
 export async function createTransaction(formData) {
+  try {
+    // Only super admin can create transactions
+    await requireSuperAdmin();
+  } catch (error) {
+    console.error("[createTransaction] Access denied:", error.message);
+    return { error: "Access denied: Super admin required" };
+  }
+  
   await connectDB();
   const session = await mongoose.startSession();
 
@@ -101,6 +110,25 @@ export async function createTransaction(formData) {
 }
 
 export async function getAllTransactions(filters = {}) {
+  try {
+    // Only super admin can access transactions
+    await requireSuperAdmin();
+  } catch (error) {
+    console.error("[getAllTransactions] Access denied:", error.message);
+    return {
+      transactions: [],
+      pagination: {
+        page: 1,
+        limit: 50,
+        total: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPrevPage: false,
+      },
+      totalAmount: 0,
+    };
+  }
+  
   await connectDB();
 
   try {

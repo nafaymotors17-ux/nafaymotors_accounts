@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-export default function TransactionFormClient({ account, onClose }) {
+export default function TransactionForm({ account, onClose }) {
   const router = useRouter();
   const today = new Date().toISOString().slice(0, 16);
   const [type, setType] = useState("credit");

@@ -128,6 +128,36 @@ export async function getAllTransactions(filters = {}) {
       };
     }
 
+    // Get account info for opening balance calculation (if accountSlug is provided)
+    let account = null;
+    let openingBalance = 0;
+    
+    if (accountSlug) {
+      account = await Account.findOne({ slug: accountSlug }).lean();
+      if (account) {
+        openingBalance = account.initialBalance || 0;
+        
+        // Calculate opening balance from transactions before the start date
+        if (startDate) {
+          const start = new Date(startDate);
+          start.setHours(0, 0, 0, 0);
+          
+          const priorTransactions = await Transaction.find({
+            accountSlug,
+            transactionDate: { $lt: start },
+          })
+            .sort({ transactionDate: 1 })
+            .lean();
+
+          priorTransactions.forEach((transaction) => {
+            const credit = transaction.credit || 0;
+            const debit = transaction.debit || 0;
+            openingBalance = openingBalance + credit - debit;
+          });
+        }
+      }
+    }
+
     /* =======================
        Date Filter (Exact / Range)
     ======================= */
@@ -173,65 +203,88 @@ export async function getAllTransactions(filters = {}) {
       matchStage.details = { $regex: search, $options: "i" };
     }
 
-    const skip = (page - 1) * limit;
-
     /* =======================
-       Aggregation Pipeline
+       Get all matching transactions first (for balance calculation)
     ======================= */
-    const pipeline = [
-      { $match: matchStage },
+    const allMatchingTransactions = await Transaction.find(matchStage)
+      .sort({ transactionDate: 1, createdAt: 1 }) // Sort oldest first for balance calculation
+      .lean();
 
-      { $sort: { transactionDate: -1, createdAt: -1 } },
+    // Calculate running balance for all transactions
+    let currentBalance = openingBalance;
+    const transactionsWithBalance = allMatchingTransactions.map((transaction) => {
+      const credit = transaction.credit || 0;
+      const debit = transaction.debit || 0;
+      currentBalance = currentBalance + credit - debit;
 
-      {
-        $facet: {
-          data: [
-            { $skip: skip },
-            { $limit: limit },
+      return {
+        ...transaction,
+        _id: transaction._id.toString(),
+        runningBalance: currentBalance,
+      };
+    });
 
-            {
-              $lookup: {
-                from: "accounts",
-                localField: "accountId",
-                foreignField: "_id",
-                as: "account",
-              },
-            },
-            { $unwind: { path: "$account", preserveNullAndEmptyArrays: true } },
+    // Reverse to show newest first for display
+    transactionsWithBalance.reverse();
 
-            {
-              $project: {
-                _id: 1,
-                transactionDate: 1,
-                credit: 1,
-                debit: 1,
-                details: 1,
-                createdAt: 1,
-                account: {
-                  title: "$account.title",
-                  slug: "$account.slug",
-                  currency: "$account.currency",
-                  currencySymbol: "$account.currencySymbol",
-                },
-              },
-            },
-          ],
+    // Apply pagination
+    const skip = (page - 1) * limit;
+    const paginatedTransactions = transactionsWithBalance.slice(skip, skip + limit);
 
-          totalCount: [{ $count: "count" }],
+    // Get account info for each transaction if not already included
+    let transactionsWithAccountInfo;
+    
+    if (account) {
+      // Single account - use cached account info
+      transactionsWithAccountInfo = paginatedTransactions.map((transaction) => ({
+        ...transaction,
+        account: {
+          title: account.title,
+          slug: account.slug,
+          currency: account.currency,
+          currencySymbol: account.currencySymbol,
         },
-      },
-    ];
+      }));
+    } else {
+      // Multiple accounts - batch lookup
+      const uniqueAccountIds = [
+        ...new Set(
+          paginatedTransactions.map((t) => t.accountId?.toString()).filter(Boolean)
+        ),
+      ];
+      
+      const accountsMap = new Map();
+      if (uniqueAccountIds.length > 0) {
+        const accounts = await Account.find({
+          _id: { $in: uniqueAccountIds.map((id) => new mongoose.Types.ObjectId(id)) },
+        }).lean();
+        
+        accounts.forEach((acc) => {
+          accountsMap.set(acc._id.toString(), {
+            title: acc.title,
+            slug: acc.slug,
+            currency: acc.currency,
+            currencySymbol: acc.currencySymbol,
+          });
+        });
+      }
+      
+      transactionsWithAccountInfo = paginatedTransactions.map((transaction) => ({
+        ...transaction,
+        account: transaction.accountId
+          ? accountsMap.get(transaction.accountId.toString()) || null
+          : null,
+      }));
+    }
 
-    const [result] = await Transaction.aggregate(pipeline);
-
-    const transactions = result.data || [];
-    const total = result.totalCount[0]?.count || 0;
+    const total = transactionsWithBalance.length;
 
     return {
-      transactions,
+      transactions: transactionsWithAccountInfo,
       total,
       page,
       totalPages: Math.ceil(total / limit),
+      openingBalance: openingBalance,
     };
   } catch (error) {
     console.error("Error fetching transactions:", error);
@@ -240,6 +293,7 @@ export async function getAllTransactions(filters = {}) {
       total: 0,
       page: 1,
       totalPages: 0,
+      openingBalance: 0,
     };
   }
 }

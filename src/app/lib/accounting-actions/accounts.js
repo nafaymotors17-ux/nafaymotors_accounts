@@ -4,7 +4,27 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import connectDB from "@/app/lib/dbConnect";
 import Account from "@/app/lib/models/Account";
+import { requireSuperAdmin } from "@/app/lib/auth/getSession";
+
 export async function getAccounts(searchParams = {}) {
+  try {
+    // Only super admin can access accounting
+    await requireSuperAdmin();
+  } catch (error) {
+    console.error("[getAccounts] Access denied:", error.message);
+    return {
+      accounts: [],
+      pagination: {
+        page: 1,
+        limit: 10,
+        total: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPrevPage: false,
+      },
+    };
+  }
+  
   await connectDB();
 
   const page = parseInt(searchParams.page) || 1;
@@ -70,11 +90,26 @@ export async function getAccounts(searchParams = {}) {
 }
 export async function getAccountsCount() {
   try {
+    // Only super admin can access accounting
+    await requireSuperAdmin();
+    await connectDB();
     const totalAccounts = await Account.countDocuments();
     return totalAccounts;
-  } catch (error) {}
+  } catch (error) {
+    // If not super admin or other error, return 0
+    console.error("[getAccountsCount] Error:", error.message);
+    return 0;
+  }
 }
 export async function createAccount(formData) {
+  try {
+    // Only super admin can create accounts
+    await requireSuperAdmin();
+  } catch (error) {
+    console.error("[createAccount] Access denied:", error.message);
+    return { error: "Access denied: Super admin required" };
+  }
+  
   await connectDB();
 
   try {
