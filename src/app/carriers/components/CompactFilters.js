@@ -23,10 +23,12 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
     const startDate = formData.get("startDate");
     const endDate = formData.get("endDate");
     const company = formData.get("company");
+    const isActive = formData.get("isActive");
 
     if (startDate) newParams.set("startDate", startDate);
     if (endDate) newParams.set("endDate", endDate);
     if (company) newParams.set("company", company);
+    if (isActive) newParams.set("isActive", isActive);
 
     // Update URL and refresh data immediately
     const url = `/carriers?${newParams.toString()}`;
@@ -63,11 +65,12 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
   };
 
   const hasActiveFilters =
-    params.get("startDate") || params.get("endDate") || params.get("company");
+    params.get("startDate") || params.get("endDate") || params.get("company") || params.get("isActive");
   
   const selectedCompany = params.get("company") || "";
   const startDate = params.get("startDate") || "";
   const endDate = params.get("endDate") || "";
+  const selectedIsActive = params.get("isActive") || "";
   
   // Show invoice button only when company and both dates are selected
   const canGenerateInvoice = selectedCompany && startDate && endDate;
@@ -138,6 +141,22 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
                 <Plus className="w-3 h-3" />
               </button>
             </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <label className="text-[10px] font-medium text-gray-600 whitespace-nowrap">
+              Status:
+            </label>
+            <select
+              name="isActive"
+              key={`isActive-${selectedIsActive}`}
+              defaultValue={selectedIsActive}
+              className="w-28 px-1.5 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">All</option>
+              <option value="true">Active</option>
+              <option value="false">Inactive</option>
+            </select>
           </div>
 
           <div className="flex gap-1.5 ml-auto">

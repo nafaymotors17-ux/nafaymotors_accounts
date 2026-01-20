@@ -28,6 +28,10 @@ const CarrierSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -55,6 +59,7 @@ CarrierSchema.index({ name: 1, sparse: true });
 CarrierSchema.index({ date: 1 });
 CarrierSchema.index({ type: 1 });
 CarrierSchema.index({ userId: 1 });
+CarrierSchema.index({ isActive: 1 });
 // Compound unique index: company name should be unique per user
 CarrierSchema.index({ name: 1, userId: 1, type: 1 }, { unique: true, sparse: true, partialFilterExpression: { type: 'company' } });
 

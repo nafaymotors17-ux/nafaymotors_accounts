@@ -56,6 +56,26 @@ export async function getAllCarriers(searchParams = {}) {
       query.type = searchParams.type;
     }
     
+    // Filter by active/inactive status
+    // Store isActive filter separately to handle $or condition properly
+    let isActiveFilter = null;
+    if (searchParams.isActive !== undefined && searchParams.isActive !== "") {
+      const isActiveValue = searchParams.isActive === "true" || searchParams.isActive === true;
+      if (isActiveValue) {
+        // For active: include isActive=true OR isActive is undefined/null (backward compatibility)
+        isActiveFilter = { 
+          $or: [
+            { isActive: true },
+            { isActive: { $exists: false } },
+            { isActive: null }
+          ]
+        };
+      } else {
+        // For inactive: only include isActive=false
+        isActiveFilter = { isActive: false };
+      }
+    }
+    
     // For backward compatibility: if no type filter, show all carriers
     // (both with and without type field)
     
@@ -239,6 +259,11 @@ export async function getAllCarriers(searchParams = {}) {
       matchConditions.push(otherConditions);
     }
     
+    // Add isActive filter if specified (handles $or for active trips)
+    if (isActiveFilter) {
+      matchConditions.push(isActiveFilter);
+    }
+    
     // CRITICAL: If we have matching carrier IDs from car filters (company, car date, etc.),
     // we MUST restrict to only those carriers - this is the main filter
     // When car filters are applied, matchingCarrierIds MUST be set and used
@@ -396,6 +421,7 @@ export async function getAllCarriers(searchParams = {}) {
           date: 1,
           totalExpense: 1,
           notes: 1,
+          isActive: 1,
           createdAt: 1,
           updatedAt: 1,
           carCount: 1,
@@ -460,6 +486,11 @@ export async function getAllCarriers(searchParams = {}) {
     // Add other conditions (date, type, etc.) - carrier-level filters
     if (Object.keys(totalOtherConditions).length > 0) {
       totalMatchConditions.push(totalOtherConditions);
+    }
+    
+    // Add isActive filter if specified (handles $or for active trips)
+    if (isActiveFilter) {
+      totalMatchConditions.push(isActiveFilter);
     }
     
     // CRITICAL: If we have matching carrier IDs from car filters (company, car date, etc.),
@@ -734,6 +765,65 @@ export async function updateCarrierExpense(carrierId, expense) {
   } catch (error) {
     console.error("Error updating carrier expense:", error);
     return { error: "Failed to update expense" };
+  }
+}
+
+export async function toggleCarrierActiveStatus(carrierId) {
+  await connectDB();
+  try {
+    const session = await getSession();
+    if (!session) {
+      console.error("Toggle active: No session found");
+      return { error: "Unauthorized" };
+    }
+
+    // Convert carrierId to ObjectId if it's a string
+    let carrierIdObj = carrierId;
+    if (typeof carrierId === 'string' && mongoose.Types.ObjectId.isValid(carrierId)) {
+      carrierIdObj = new mongoose.Types.ObjectId(carrierId);
+    }
+
+    const carrier = await Carrier.findById(carrierIdObj);
+    if (!carrier) {
+      console.error("Toggle active: Carrier not found", { carrierId, carrierIdObj });
+      return { error: "Carrier not found" };
+    }
+
+    // Check if user has permission (must be owner or super admin)
+    const carrierUserId = carrier.userId?.toString();
+    const sessionUserId = session.userId?.toString();
+    
+    if (session.role !== "super_admin" && carrierUserId !== sessionUserId) {
+      console.error("Toggle active: Unauthorized", { 
+        carrierUserId, 
+        sessionUserId, 
+        role: session.role 
+      });
+      return { error: "Unauthorized to modify this carrier" };
+    }
+
+    // Toggle active status
+    // Handle undefined/null as active (true) for backward compatibility
+    const currentStatus = carrier.isActive !== false; // true if undefined/null/true
+    carrier.isActive = !currentStatus; // Toggle to opposite
+    
+    console.log("Toggling carrier active status", {
+      carrierId: carrier._id.toString(),
+      oldStatus: currentStatus,
+      newStatus: carrier.isActive
+    });
+    
+    await carrier.save();
+
+    revalidatePath("/carriers");
+    return {
+      success: true,
+      carrier: JSON.parse(JSON.stringify(carrier)),
+      message: carrier.isActive ? "Trip marked as active" : "Trip marked as inactive",
+    };
+  } catch (error) {
+    console.error("Error toggling carrier active status:", error);
+    return { error: `Failed to update trip status: ${error.message}` };
   }
 }
 

@@ -28,7 +28,7 @@ export default function TabNavigation() {
   if (loading) {
     return (
       <div className="flex gap-1 border-b border-gray-200 bg-white">
-        <div className="px-6 py-3 text-sm text-gray-500">Loading...</div>
+        <div className="px-3 py-2 text-xs text-gray-500">Loading...</div>
       </div>
     );
   }
@@ -57,7 +57,7 @@ export default function TabNavigation() {
 
   return (
     <div className="flex justify-between items-center">
-      <div className="flex gap-1 border-b border-gray-200 bg-white">
+      <div className="flex gap-0.5 border-b border-gray-200 bg-white">
         {filteredModules.map((module) => {
           const isActive = pathname === module.path || pathname.startsWith(module.path + '/');
           
@@ -72,7 +72,7 @@ export default function TabNavigation() {
                 }
               }}
               className={`
-                px-6 py-3 text-sm font-medium transition-colors
+                px-3 py-2 text-xs font-medium transition-colors
                 ${
                   isActive
                     ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50"
@@ -80,25 +80,25 @@ export default function TabNavigation() {
                 }
               `}
             >
-              <span className="mr-2">{module.icon}</span>
+              <span className="mr-1">{module.icon}</span>
               {module.name}
             </Link>
           );
         })}
       </div>
-      <div className="flex items-center gap-4 px-4">
-        <div className="flex items-center gap-2 text-sm text-gray-600">
-          <User className="w-4 h-4" />
+      <div className="flex items-center gap-3 px-2">
+        <div className="flex items-center gap-1.5 text-xs text-gray-600">
+          <User className="w-3.5 h-3.5" />
           <span className="font-medium">{user.username}</span>
           {user.role === "super_admin" && (
-            <span className="text-xs text-purple-600 font-medium">(Admin)</span>
+            <span className="text-[10px] text-purple-600 font-medium">(Admin)</span>
           )}
         </div>
         <button
           onClick={logout}
-          className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+          className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
         >
-          <LogOut className="w-4 h-4" />
+          <LogOut className="w-3.5 h-3.5" />
           Logout
         </button>
       </div>

@@ -7,6 +7,7 @@ import { Plus, ChevronDown, ChevronRight, Edit, Trash2 } from "lucide-react";
 import CarrierTripForm from "./CarrierTripForm";
 import CarForm from "./CarForm";
 import { deleteCar } from "@/app/lib/carriers-actions/cars";
+import { toggleCarrierActiveStatus } from "@/app/lib/carriers-actions/carriers";
 import { useRouter } from "next/navigation";
 import { formatDate } from "@/app/lib/utils/dateFormat";
 
@@ -77,6 +78,33 @@ export default function SimpleCarriersTable({
     }
   };
 
+  const handleToggleActive = async (e, carrierId, currentStatus) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    console.log("Toggle active clicked", { carrierId, currentStatus });
+    
+    // Treat undefined/null as active (true) for backward compatibility
+    const isCurrentlyActive = currentStatus !== false;
+    const action = isCurrentlyActive ? "inactive" : "active";
+    
+    try {
+      console.log("Calling toggleCarrierActiveStatus with:", carrierId);
+      const result = await toggleCarrierActiveStatus(carrierId);
+      console.log("Toggle result:", result);
+      
+      if (result.success) {
+        router.refresh();
+      } else {
+        console.error("Toggle failed:", result.error);
+        alert(result.error || "Failed to update trip status");
+      }
+    } catch (error) {
+      console.error("Error toggling active status:", error);
+      alert("An error occurred while updating trip status: " + error.message);
+    }
+  };
+
   return (
     <>
       <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -128,7 +156,7 @@ export default function SimpleCarriersTable({
                   return (
                     <React.Fragment key={carrier._id}>
                       <tr
-                        className="hover:bg-gray-50 cursor-pointer"
+                        className={`hover:bg-gray-50 cursor-pointer ${(carrier.isActive === false) ? 'opacity-60 bg-gray-100' : ''}`}
                         onClick={() => toggleTrip(carrierIdStr)}
                       >
                         <td className="px-2 py-1.5 text-gray-400">
@@ -146,6 +174,9 @@ export default function SimpleCarriersTable({
                             )}
                             {carrier.type === 'trip' && (
                               <span className="text-[8px] text-gray-500 bg-gray-100 px-1 py-0.5 rounded">TR</span>
+                            )}
+                            {(carrier.isActive === false) && (
+                              <span className="text-[8px] text-red-600 bg-red-100 px-1 py-0.5 rounded">INACTIVE</span>
                             )}
                           </div>
                         </td>
@@ -187,16 +218,32 @@ export default function SimpleCarriersTable({
                           className="px-2 py-1.5 text-center"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <button
-                            onClick={() => {
-                              setEditingCarrier(carrier);
-                              setShowTripForm(true);
-                            }}
-                            className="text-gray-600 hover:text-gray-800"
-                            title="Edit Trip"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => {
+                                setEditingCarrier(carrier);
+                                setShowTripForm(true);
+                              }}
+                              className="text-gray-600 hover:text-gray-800"
+                              title="Edit Trip"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            {carrier.type === 'trip' && (
+                              <button
+                                type="button"
+                                onClick={(e) => handleToggleActive(e, carrier._id, carrier.isActive)}
+                                className={`px-1.5 py-0.5 text-[9px] font-medium rounded border transition-colors ${
+                                  (carrier.isActive === false) 
+                                    ? 'bg-red-100 text-red-700 border-red-300 hover:bg-red-200' 
+                                    : 'bg-green-100 text-green-700 border-green-300 hover:bg-green-200'
+                                }`}
+                                title={`Click to mark as ${(carrier.isActive === false) ? 'Active' : 'Inactive'}`}
+                              >
+                                {(carrier.isActive === false) ? 'Inactive' : 'Active'}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
 
