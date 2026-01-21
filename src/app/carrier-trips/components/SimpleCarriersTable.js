@@ -1,15 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import React from "react";
 import { useSearchParams } from "next/navigation";
-import { Plus, ChevronDown, ChevronRight, Edit, Trash2 } from "lucide-react";
+import { Plus, ChevronDown, ChevronRight, Edit, Trash2, FileSpreadsheet } from "lucide-react";
 import CarrierTripForm from "./CarrierTripForm";
 import CarForm from "./CarForm";
 import { deleteCar } from "@/app/lib/carriers-actions/cars";
-import { toggleCarrierActiveStatus } from "@/app/lib/carriers-actions/carriers";
 import { useRouter } from "next/navigation";
 import { formatDate } from "@/app/lib/utils/dateFormat";
+import * as XLSX from "xlsx";
+import { getAllCarriers } from "@/app/lib/carriers-actions/carriers";
 
 export default function SimpleCarriersTable({
   carriers,
@@ -20,11 +21,14 @@ export default function SimpleCarriersTable({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
   const [expandedTrips, setExpandedTrips] = useState(new Set());
   const [showTripForm, setShowTripForm] = useState(false);
   const [editingCarrier, setEditingCarrier] = useState(null);
   const [carrierCars, setCarrierCars] = useState({});
   const [showCarForm, setShowCarForm] = useState({});
+  const [carFormCarrier, setCarFormCarrier] = useState(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   const toggleTrip = async (carrierId) => {
     const carrierIdStr = carrierId.toString();
@@ -47,7 +51,7 @@ export default function SimpleCarriersTable({
           if (endDate) params.set("endDate", endDate);
           
           const queryString = params.toString();
-          const url = `/api/carriers/${carrierIdStr}/cars${queryString ? `?${queryString}` : ""}`;
+          const url = `/api/carrier-trips/${carrierIdStr}/cars${queryString ? `?${queryString}` : ""}`;
           const response = await fetch(url);
           if (response.ok) {
             const data = await response.json();
@@ -82,26 +86,118 @@ export default function SimpleCarriersTable({
     e.preventDefault();
     e.stopPropagation();
     
-    console.log("Toggle active clicked", { carrierId, currentStatus });
+    console.log("Toggle active clicked", { carrierId, currentStatus, carrierIdType: typeof carrierId });
     
-    // Treat undefined/null as active (true) for backward compatibility
-    const isCurrentlyActive = currentStatus !== false;
-    const action = isCurrentlyActive ? "inactive" : "active";
-    
-    try {
-      console.log("Calling toggleCarrierActiveStatus with:", carrierId);
-      const result = await toggleCarrierActiveStatus(carrierId);
-      console.log("Toggle result:", result);
-      
-      if (result.success) {
-        router.refresh();
-      } else {
-        console.error("Toggle failed:", result.error);
-        alert(result.error || "Failed to update trip status");
+    // Use API route instead of server action for more reliable execution
+    startTransition(async () => {
+      try {
+        console.log("Calling API to toggle active status:", carrierId);
+        const response = await fetch(`/api/carrier-trips/${carrierId}/toggle-active`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+
+        const result = await response.json();
+        console.log("Toggle result:", result);
+        
+        if (result.success) {
+          router.refresh();
+        } else {
+          console.error("Toggle failed:", result.error);
+          alert(result.error || "Failed to update trip status");
+        }
+      } catch (error) {
+        console.error("Error toggling active status:", error);
+        alert("An error occurred while updating trip status: " + error.message);
       }
+    });
+  };
+
+  const handleExportToExcel = async () => {
+    setIsExporting(true);
+    try {
+      // Get current filter parameters from URL
+      const currentParams = {
+        company: searchParams.get("company") || "",
+        startDate: searchParams.get("startDate") || "",
+        endDate: searchParams.get("endDate") || "",
+        isActive: searchParams.get("isActive") || "",
+        limit: 10000, // Get all filtered results
+        page: 1,
+      };
+
+      // Fetch all filtered carriers
+      const result = await getAllCarriers(currentParams);
+      const allCarriers = result.carriers || [];
+
+      if (allCarriers.length === 0) {
+        alert("No trips found to export");
+        setIsExporting(false);
+        return;
+      }
+
+      // Prepare data for Excel
+      const excelData = allCarriers.map((carrier, index) => {
+        const profit = (carrier.totalAmount || 0) - (carrier.totalExpense || 0);
+        return {
+          "SR": index + 1,
+          "Trip Number": carrier.tripNumber || carrier.name || "N/A",
+          "Type": carrier.type === "company" ? "Company" : carrier.type === "trip" ? "Trip" : "N/A",
+          "Date": formatDate(carrier.date),
+          "Notes": carrier.notes || "",
+          "Status": carrier.isActive === false ? "Inactive" : "Active",
+          "Cars Count": carrier.carCount || 0,
+          "Total Amount": (carrier.totalAmount || 0).toFixed(2),
+          "Total Expense": (carrier.totalExpense || 0).toFixed(2),
+          "Profit": profit.toFixed(2),
+          "User": isSuperAdmin && carrier.user?.username ? carrier.user.username : "N/A",
+        };
+      });
+
+      // Create workbook and worksheet
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(excelData);
+
+      // Set column widths
+      ws["!cols"] = [
+        { wch: 5 },   // SR
+        { wch: 15 },  // Trip Number
+        { wch: 10 },  // Type
+        { wch: 12 },  // Date
+        { wch: 30 },  // Notes
+        { wch: 10 },  // Status
+        { wch: 10 },  // Cars Count
+        { wch: 15 },  // Total Amount
+        { wch: 15 },  // Total Expense
+        { wch: 15 },  // Profit
+        { wch: 15 },  // User
+      ];
+
+      // Add worksheet to workbook
+      XLSX.utils.book_append_sheet(wb, ws, "Carrier Trips");
+
+      // Generate filename with filter info
+      let filename = "Carrier_Trips";
+      if (currentParams.startDate && currentParams.endDate) {
+        filename += `_${currentParams.startDate}_to_${currentParams.endDate}`;
+      }
+      if (currentParams.company) {
+        filename += `_${currentParams.company.replace(/[^a-zA-Z0-9]/g, "_")}`;
+      }
+      if (currentParams.isActive) {
+        filename += `_${currentParams.isActive === "true" ? "Active" : "Inactive"}`;
+      }
+      filename += `_${new Date().toISOString().split("T")[0]}.xlsx`;
+
+      // Save file
+      XLSX.writeFile(wb, filename);
     } catch (error) {
-      console.error("Error toggling active status:", error);
-      alert("An error occurred while updating trip status: " + error.message);
+      console.error("Error exporting to Excel:", error);
+      alert("Failed to export to Excel. Please try again.");
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -110,17 +206,83 @@ export default function SimpleCarriersTable({
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="p-2 border-b flex justify-between items-center bg-gray-50">
           <h2 className="text-sm font-semibold text-gray-800">Carrier Trips</h2>
-          <button
-            onClick={() => {
-              setShowTripForm(true);
-              setEditingCarrier(null);
-            }}
-            className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1 text-xs"
-          >
-            <Plus className="w-3 h-3" />
-            New Trip
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportToExcel}
+              disabled={isExporting || carriers.length === 0}
+              className="px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-1 text-xs"
+              title="Export filtered trips to Excel"
+            >
+              <FileSpreadsheet className="w-3 h-3" />
+              {isExporting ? "Exporting..." : "Export Excel"}
+            </button>
+            <button
+              onClick={() => {
+                setShowTripForm(true);
+                setEditingCarrier(null);
+              }}
+              className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1 text-xs"
+            >
+              <Plus className="w-3 h-3" />
+              New Trip
+            </button>
+          </div>
         </div>
+
+        {/* Pagination - Moved to top */}
+        {pagination && pagination.total > 0 && (
+          <div className="p-3 border-b bg-gray-50 flex flex-col sm:flex-row justify-between items-center gap-3">
+            <div className="text-xs text-gray-600">
+              Showing {((pagination.page - 1) * pagination.limit) + 1} to{" "}
+              {Math.min(pagination.page * pagination.limit, pagination.total)} of{" "}
+              {pagination.total} trips
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-600">Page size:</label>
+              <select
+                value={pagination.limit}
+                onChange={(e) => {
+                  const params = new URLSearchParams(window.location.search);
+                  params.set("limit", e.target.value);
+                  params.set("page", "1"); // Reset to first page
+                  router.push(`/carrier-trips?${params.toString()}`);
+                }}
+                className="px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="50">50</option>
+              </select>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => {
+                    const params = new URLSearchParams(window.location.search);
+                    params.set("page", (pagination.page - 1).toString());
+                    router.push(`/carrier-trips?${params.toString()}`);
+                  }}
+                  disabled={!pagination.hasPrevPage}
+                  className="px-2 py-1 text-xs border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                >
+                  Prev
+                </button>
+                <span className="px-2 py-1 text-xs text-gray-700">
+                  {pagination.page} / {pagination.totalPages}
+                </span>
+                <button
+                  onClick={() => {
+                    const params = new URLSearchParams(window.location.search);
+                    params.set("page", (pagination.page + 1).toString());
+                    router.push(`/carrier-trips?${params.toString()}`);
+                  }}
+                  disabled={!pagination.hasNextPage}
+                  className="px-2 py-1 text-xs border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {carriers.length === 0 ? (
           <div className="p-6 text-center text-gray-500 text-sm">
@@ -137,6 +299,7 @@ export default function SimpleCarriersTable({
                     <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">USER</th>
                   )}
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">DATE</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">NOTES</th>
                   <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">CARS</th>
                   <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">TOTAL</th>
                   <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">EXPENSE</th>
@@ -152,6 +315,16 @@ export default function SimpleCarriersTable({
                   const cars = carrierCars[carrierIdStr] || carrier.cars || [];
                   const carsTotal = cars.reduce((sum, car) => sum + (car.amount || 0), 0);
                   const profit = (carrier.profit || 0);
+                  
+                  // Debug: Log carrier data to check type field
+                  if (!carrier.type && carrier.tripNumber) {
+                    console.log("Carrier missing type field:", { 
+                      _id: carrier._id, 
+                      tripNumber: carrier.tripNumber, 
+                      name: carrier.name,
+                      type: carrier.type 
+                    });
+                  }
 
                   return (
                     <React.Fragment key={carrier._id}>
@@ -172,7 +345,7 @@ export default function SimpleCarriersTable({
                             {carrier.type === 'company' && (
                               <span className="text-[8px] text-gray-500 bg-gray-100 px-1 py-0.5 rounded">CO</span>
                             )}
-                            {carrier.type === 'trip' && (
+                            {(carrier.type === 'trip' || (!carrier.type && carrier.tripNumber)) && (
                               <span className="text-[8px] text-gray-500 bg-gray-100 px-1 py-0.5 rounded">TR</span>
                             )}
                             {(carrier.isActive === false) && (
@@ -193,6 +366,9 @@ export default function SimpleCarriersTable({
                         )}
                         <td className="px-2 py-1.5 text-gray-600 whitespace-nowrap">
                           {formatDate(carrier.date)}
+                        </td>
+                        <td className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[150px] truncate" title={carrier.notes || ""}>
+                          {carrier.notes || "-"}
                         </td>
                         <td className="px-2 py-1.5 text-right text-gray-700">
                           {carrier.carCount || 0}
@@ -229,18 +405,22 @@ export default function SimpleCarriersTable({
                             >
                               <Edit className="w-3.5 h-3.5" />
                             </button>
-                            {carrier.type === 'trip' && (
+                            {(carrier.type === 'trip' || (!carrier.type && carrier.tripNumber)) && (
                               <button
                                 type="button"
-                                onClick={(e) => handleToggleActive(e, carrier._id, carrier.isActive)}
+                                onClick={(e) => {
+                                  console.log("Button clicked", { carrierId: carrier._id, isActive: carrier.isActive, type: carrier.type });
+                                  handleToggleActive(e, carrier._id, carrier.isActive);
+                                }}
+                                disabled={isPending}
                                 className={`px-1.5 py-0.5 text-[9px] font-medium rounded border transition-colors ${
                                   (carrier.isActive === false) 
                                     ? 'bg-red-100 text-red-700 border-red-300 hover:bg-red-200' 
                                     : 'bg-green-100 text-green-700 border-green-300 hover:bg-green-200'
-                                }`}
+                                } ${isPending ? 'opacity-50 cursor-not-allowed' : ''}`}
                                 title={`Click to mark as ${(carrier.isActive === false) ? 'Active' : 'Inactive'}`}
                               >
-                                {(carrier.isActive === false) ? 'Inactive' : 'Active'}
+                                {isPending ? '...' : ((carrier.isActive === false) ? 'Inactive' : 'Active')}
                               </button>
                             )}
                           </div>
@@ -250,7 +430,7 @@ export default function SimpleCarriersTable({
                       {/* Expanded Cars Table */}
                       {isExpanded && (
                         <tr>
-                          <td colSpan={isSuperAdmin ? 9 : 8} className="px-0 py-0 bg-gray-50">
+                          <td colSpan={isSuperAdmin ? 10 : 9} className="px-0 py-0 bg-gray-50">
                             <div className="px-2 py-2">
                               <div className="flex justify-between items-center mb-2">
                                 <h4 className="text-xs font-semibold text-gray-700">
@@ -259,6 +439,7 @@ export default function SimpleCarriersTable({
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
+                                    setCarFormCarrier(carrier);
                                     setShowCarForm({ ...showCarForm, [carrierIdStr]: true });
                                   }}
                                   className="px-2 py-0.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1"
@@ -365,101 +546,11 @@ export default function SimpleCarriersTable({
                           </td>
                         </tr>
                       )}
-
-                      {/* Car Form Modal */}
-                      {showCarForm[carrierIdStr] && (
-                        <CarForm
-                          carrier={carrier}
-                          companies={companies}
-                          users={users}
-                          onClose={async () => {
-                            setShowCarForm({ ...showCarForm, [carrierIdStr]: false });
-                            // Refetch cars for this carrier immediately
-                            try {
-                              const params = new URLSearchParams();
-                              const company = searchParams.get("company");
-                              const startDate = searchParams.get("startDate");
-                              const endDate = searchParams.get("endDate");
-                              
-                              if (company) params.set("company", company);
-                              if (startDate) params.set("startDate", startDate);
-                              if (endDate) params.set("endDate", endDate);
-                              
-                              const queryString = params.toString();
-                              const url = `/api/carriers/${carrierIdStr}/cars${queryString ? `?${queryString}` : ""}`;
-                              const response = await fetch(url);
-                              if (response.ok) {
-                                const data = await response.json();
-                                setCarrierCars({ ...carrierCars, [carrierIdStr]: data.cars });
-                              }
-                            } catch (error) {
-                              console.error("Error refetching cars:", error);
-                            }
-                            // Also refresh the page to update carrier counts
-                            router.refresh();
-                          }}
-                        />
-                      )}
                     </React.Fragment>
                   );
                 })}
               </tbody>
             </table>
-          </div>
-        )}
-
-        {/* Pagination */}
-        {pagination && pagination.total > 0 && (
-          <div className="p-3 border-t bg-gray-50 flex flex-col sm:flex-row justify-between items-center gap-3">
-            <div className="text-xs text-gray-600">
-              Showing {((pagination.page - 1) * pagination.limit) + 1} to{" "}
-              {Math.min(pagination.page * pagination.limit, pagination.total)} of{" "}
-              {pagination.total} trips
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-600">Page size:</label>
-              <select
-                value={pagination.limit}
-                onChange={(e) => {
-                  const params = new URLSearchParams(window.location.search);
-                  params.set("limit", e.target.value);
-                  params.set("page", "1"); // Reset to first page
-                  router.push(`/carriers?${params.toString()}`);
-                }}
-                className="px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="10">10</option>
-                <option value="20">20</option>
-                <option value="50">50</option>
-              </select>
-              <div className="flex gap-1">
-                <button
-                  onClick={() => {
-                    const params = new URLSearchParams(window.location.search);
-                    params.set("page", (pagination.page - 1).toString());
-                    router.push(`/carriers?${params.toString()}`);
-                  }}
-                  disabled={!pagination.hasPrevPage}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                >
-                  Prev
-                </button>
-                <span className="px-2 py-1 text-xs text-gray-700">
-                  {pagination.page} / {pagination.totalPages}
-                </span>
-                <button
-                  onClick={() => {
-                    const params = new URLSearchParams(window.location.search);
-                    params.set("page", (pagination.page + 1).toString());
-                    router.push(`/carriers?${params.toString()}`);
-                  }}
-                  disabled={!pagination.hasNextPage}
-                  className="px-2 py-1 text-xs border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
           </div>
         )}
       </div>
@@ -472,6 +563,42 @@ export default function SimpleCarriersTable({
             setShowTripForm(false);
             setEditingCarrier(null);
             // Refresh immediately to show new trip
+            router.refresh();
+          }}
+        />
+      )}
+
+      {carFormCarrier && showCarForm[carFormCarrier._id.toString()] && (
+        <CarForm
+          carrier={carFormCarrier}
+          companies={companies}
+          users={users}
+          onClose={async () => {
+            const carrierIdStr = carFormCarrier._id.toString();
+            setShowCarForm({ ...showCarForm, [carrierIdStr]: false });
+            setCarFormCarrier(null);
+            // Refetch cars for this carrier immediately
+            try {
+              const params = new URLSearchParams();
+              const company = searchParams.get("company");
+              const startDate = searchParams.get("startDate");
+              const endDate = searchParams.get("endDate");
+              
+              if (company) params.set("company", company);
+              if (startDate) params.set("startDate", startDate);
+              if (endDate) params.set("endDate", endDate);
+              
+              const queryString = params.toString();
+              const url = `/api/carrier-trips/${carrierIdStr}/cars${queryString ? `?${queryString}` : ""}`;
+              const response = await fetch(url);
+              if (response.ok) {
+                const data = await response.json();
+                setCarrierCars({ ...carrierCars, [carrierIdStr]: data.cars });
+              }
+            } catch (error) {
+              console.error("Error refetching cars:", error);
+            }
+            // Also refresh the page to update carrier counts
             router.refresh();
           }}
         />

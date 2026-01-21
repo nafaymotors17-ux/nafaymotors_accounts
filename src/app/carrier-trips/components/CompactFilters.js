@@ -6,7 +6,7 @@ import { Search, X, Plus, Download } from "lucide-react";
 import { createCompany } from "@/app/lib/carriers-actions/companies";
 import CompanyInvoiceGenerator from "./CompanyInvoiceGenerator";
 
-export default function CompactFilters({ companies, carriers = [], isSuperAdmin = false }) {
+export default function CompactFilters({ companies, carriers = [], isSuperAdmin = false, users = [] }) {
   const router = useRouter();
   const params = useSearchParams();
   const [showAddCompany, setShowAddCompany] = useState(false);
@@ -24,14 +24,16 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
     const endDate = formData.get("endDate");
     const company = formData.get("company");
     const isActive = formData.get("isActive");
+    const userId = formData.get("userId");
 
     if (startDate) newParams.set("startDate", startDate);
     if (endDate) newParams.set("endDate", endDate);
     if (company) newParams.set("company", company);
     if (isActive) newParams.set("isActive", isActive);
+    if (userId && isSuperAdmin) newParams.set("userId", userId);
 
     // Update URL and refresh data immediately
-    const url = `/carriers?${newParams.toString()}`;
+    const url = `/carrier-trips?${newParams.toString()}`;
     await router.push(url);
     // Refresh to ensure server components re-fetch with new params
     router.refresh();
@@ -59,18 +61,19 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
   };
 
   const clearFilters = async () => {
-    await router.push("/carriers");
+    await router.push("/carrier-trips");
     // Refresh to ensure server components re-fetch with cleared params
     router.refresh();
   };
 
   const hasActiveFilters =
-    params.get("startDate") || params.get("endDate") || params.get("company") || params.get("isActive");
+    params.get("startDate") || params.get("endDate") || params.get("company") || params.get("isActive") || params.get("userId");
   
   const selectedCompany = params.get("company") || "";
   const startDate = params.get("startDate") || "";
   const endDate = params.get("endDate") || "";
   const selectedIsActive = params.get("isActive") || "";
+  const selectedUserId = params.get("userId") || "";
   
   // Show invoice button only when company and both dates are selected
   const canGenerateInvoice = selectedCompany && startDate && endDate;
@@ -158,6 +161,27 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
               <option value="false">Inactive</option>
             </select>
           </div>
+
+          {isSuperAdmin && users.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <label className="text-[10px] font-medium text-gray-600 whitespace-nowrap">
+                User:
+              </label>
+              <select
+                name="userId"
+                key={`userId-${selectedUserId}`}
+                defaultValue={selectedUserId}
+                className="w-32 px-1.5 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">All Users</option>
+                {users.map((user) => (
+                  <option key={user._id} value={user._id}>
+                    {user.username}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="flex gap-1.5 ml-auto">
             {hasActiveFilters && (

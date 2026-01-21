@@ -27,9 +27,9 @@ export const modules = [
   },
   // Add more modules here:
   {
-    id: 'carriers',
-    name: 'Carriers & Companies',
-    path: '/carriers',
+    id: 'carrier-trips',
+    name: 'Carrier Trips & Companies',
+    path: '/carrier-trips',
     icon: '📦',
     enabled: true,
   },

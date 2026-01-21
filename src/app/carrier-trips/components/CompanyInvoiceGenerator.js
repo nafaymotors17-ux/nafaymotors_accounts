@@ -16,6 +16,7 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
   const companyFilter = params.get("company") || "";
   const startDateFilter = params.get("startDate") || "";
   const endDateFilter = params.get("endDate") || "";
+  const isActiveFilter = params.get("isActive") || "";
   
   const [cars, setCars] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -26,6 +27,7 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
   const [senderCompanyAddress, setSenderCompanyAddress] = useState("");
   
   const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [vatPercentage, setVatPercentage] = useState(""); // VAT percentage (e.g., 15 for 15%)
 
   // Find the selected company from companies list
   const selectedCompany = useMemo(() => {
@@ -39,8 +41,16 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
 
   const totals = useMemo(() => {
     const totalAmount = cars.reduce((sum, car) => sum + (car?.amount || 0), 0);
-    return { totalAmount };
-  }, [cars]);
+    const vatPercent = parseFloat(vatPercentage) || 0;
+    const vatAmount = vatPercent > 0 ? (totalAmount * vatPercent) / 100 : 0;
+    const totalWithVat = totalAmount + vatAmount;
+    return { 
+      totalAmount, 
+      vatPercentage: vatPercent,
+      vatAmount,
+      totalWithVat 
+    };
+  }, [cars, vatPercentage]);
 
   // Fetch cars only when company and date filters are applied
   useEffect(() => {
@@ -62,6 +72,7 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
           companyName: selectedCompany.name,
           startDate: startDateFilter,
           endDate: endDateFilter,
+          isActive: isActiveFilter, // Pass the active/inactive filter
         });
 
         if (result.success) {
@@ -82,7 +93,7 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
     };
 
     fetchCars();
-  }, [companyFilter, startDateFilter, endDateFilter, selectedCompany]);
+  }, [companyFilter, startDateFilter, endDateFilter, isActiveFilter, selectedCompany]);
 
   const addDescription = () => {
     setDescriptions([...descriptions, ""]);
@@ -222,15 +233,29 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
       let finalY = doc.lastAutoTable.finalY + 10;
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
-      doc.text("VAT: ZERO", margin, finalY);
-      doc.text(`R0`, pageWidth - margin, finalY, { align: "right" });
-      finalY += 6;
+      
+      if (totals.vatPercentage > 0) {
+        doc.text(`VAT (${totals.vatPercentage}%):`, margin, finalY);
+        doc.text(
+          `R${totals.vatAmount.toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+          })}`,
+          pageWidth - margin,
+          finalY,
+          { align: "right" }
+        );
+        finalY += 6;
+      } else {
+        doc.text("VAT: ZERO", margin, finalY);
+        doc.text(`R0`, pageWidth - margin, finalY, { align: "right" });
+        finalY += 6;
+      }
       
       doc.setFont("helvetica", "bold");
       doc.setFontSize(12);
       doc.text("TOTAL:", margin, finalY);
       doc.text(
-        `R${totals.totalAmount.toLocaleString("en-US", {
+        `R${totals.totalWithVat.toLocaleString("en-US", {
           minimumFractionDigits: 2,
         })}`,
         pageWidth - margin,
@@ -316,8 +341,14 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
       invoiceData.push([]);
       invoiceData.push(["TOTAL", "", "", "", "", "", totals.totalAmount || 0]);
       invoiceData.push([]);
-      invoiceData.push(["VAT: ZERO", "", "", "", "", "", "R0"]);
-      invoiceData.push(["TOTAL", "", "", "", "", "", `R${totals.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}`]);
+      
+      if (totals.vatPercentage > 0) {
+        invoiceData.push([`VAT (${totals.vatPercentage}%):`, "", "", "", "", "", `R${totals.vatAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}`]);
+      } else {
+        invoiceData.push(["VAT: ZERO", "", "", "", "", "", "R0"]);
+      }
+      
+      invoiceData.push(["TOTAL", "", "", "", "", "", `R${totals.totalWithVat.toLocaleString("en-US", { minimumFractionDigits: 2 })}`]);
       invoiceData.push([]);
       invoiceData.push(["* THANK YOU FOR DOING BUSINESS WITH US...!!"]);
 
@@ -362,7 +393,7 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
               <p className="text-xs text-gray-600 mt-0.5">
                 {!companyFilter || !startDateFilter || !endDateFilter 
                   ? "Please apply company and date filters in the main page first"
-                  : `Client: ${clientName} | Period: ${startDateFilter} to ${endDateFilter}`}
+                  : `Client: ${clientName} | Period: ${startDateFilter} to ${endDateFilter}${isActiveFilter ? ` | Status: ${isActiveFilter === 'true' ? 'Active' : 'Inactive'}` : ''}`}
               </p>
             </div>
             <button
@@ -404,6 +435,25 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
                   placeholder="Company name"
                   className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
                 />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[10px] font-medium text-gray-600 mb-0.5">
+                  VAT Percentage (Optional)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={vatPercentage}
+                  onChange={(e) => setVatPercentage(e.target.value)}
+                  placeholder="e.g., 15 for 15%"
+                  className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                />
+                <p className="text-[9px] text-gray-500 mt-0.5">Leave empty for zero VAT</p>
               </div>
             </div>
 
@@ -526,10 +576,32 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
                   <tfoot className="bg-gray-50 sticky bottom-0">
                     <tr>
                       <td colSpan="6" className="px-1.5 py-1.5 text-right font-semibold text-xs">
+                        SUBTOTAL:
+                      </td>
+                      <td className="px-1.5 py-1.5 text-green-600 font-semibold text-right text-xs">
+                        R {totals.totalAmount.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                        })}
+                      </td>
+                    </tr>
+                    {totals.vatPercentage > 0 && (
+                      <tr>
+                        <td colSpan="6" className="px-1.5 py-1.5 text-right font-semibold text-xs">
+                          VAT ({totals.vatPercentage}%):
+                        </td>
+                        <td className="px-1.5 py-1.5 text-green-600 font-semibold text-right text-xs">
+                          R {totals.vatAmount.toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                          })}
+                        </td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td colSpan="6" className="px-1.5 py-1.5 text-right font-bold text-xs">
                         TOTAL:
                       </td>
                       <td className="px-1.5 py-1.5 text-green-600 font-bold text-right text-xs">
-                        R {totals.totalAmount.toLocaleString("en-US", {
+                        R {totals.totalWithVat.toLocaleString("en-US", {
                           minimumFractionDigits: 2,
                         })}
                       </td>

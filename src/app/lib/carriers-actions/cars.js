@@ -164,7 +164,7 @@ export async function createCar(formData) {
     });
 
     await car.save();
-    revalidatePath("/carriers");
+    revalidatePath("/carrier-trips");
 
     return {
       success: true,
@@ -216,7 +216,7 @@ export async function createMultipleCars(carsData, carrierId, selectedUserId = n
       results.push(car);
     }
 
-    revalidatePath("/carriers");
+    revalidatePath("/carrier-trips");
 
     return {
       success: true,
@@ -237,7 +237,7 @@ export async function deleteCar(carId) {
       return { error: "Car not found" };
     }
 
-    revalidatePath("/carriers");
+    revalidatePath("/carrier-trips");
     return { success: true, message: "Car deleted successfully" };
   } catch (error) {
     console.error("Error deleting car:", error);
@@ -259,6 +259,7 @@ export async function getCarsByCompany(filters = {}) {
       startDate,
       endDate,
       carrierIds,
+      isActive, // Filter by active/inactive trips
       groupBy = "none", // "none", "carrier", "month"
     } = filters;
 
@@ -311,10 +312,30 @@ export async function getCarsByCompany(filters = {}) {
       query.carrier = { $in: carrierIds };
     }
 
-    const cars = await Car.find(query)
-      .populate("carrier", "tripNumber name type date totalExpense")
+    // First, get all cars matching the basic filters
+    let cars = await Car.find(query)
+      .populate("carrier", "tripNumber name type date totalExpense isActive")
       .sort({ date: 1, createdAt: 1 })
       .lean();
+
+    // Filter by active/inactive trips if specified
+    if (isActive !== undefined && isActive !== null && isActive !== "") {
+      const isActiveValue = isActive === "true" || isActive === true;
+      cars = cars.filter(car => {
+        // If carrier is populated, check its isActive status
+        if (car.carrier && car.carrier.isActive !== undefined) {
+          // For active: include isActive=true OR isActive is undefined/null (backward compatibility)
+          if (isActiveValue) {
+            return car.carrier.isActive !== false;
+          } else {
+            // For inactive: only include isActive=false
+            return car.carrier.isActive === false;
+          }
+        }
+        // If carrier is not populated or doesn't have isActive, treat as active for backward compatibility
+        return isActiveValue;
+      });
+    }
 
     // Group cars based on groupBy option
     let groupedCars = {};

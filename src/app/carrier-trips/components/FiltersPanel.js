@@ -24,11 +24,11 @@ export default function FiltersPanel({ companies, searchParams }) {
     if (company) newParams.set("company", company);
     if (customer) newParams.set("customer", customer);
 
-    router.push(`/carriers?${newParams.toString()}`);
+    router.push(`/carrier-trips?${newParams.toString()}`);
   };
 
   const clearFilters = () => {
-    router.push("/carriers");
+    router.push("/carrier-trips");
   };
 
   const hasActiveFilters = params.get("startDate") || params.get("endDate") || 

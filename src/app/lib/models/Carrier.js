@@ -32,6 +32,10 @@ const CarrierSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  notes: {
+    type: String,
+    trim: true,
+  },
   createdAt: {
     type: Date,
     default: Date.now,

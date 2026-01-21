@@ -199,7 +199,7 @@ const company = await new Company({
   userId: targetUserId,
 }).save();
 
-    revalidatePath("/carriers");
+    revalidatePath("/carrier-trips");
     return {
       success: true,
       company: JSON.parse(JSON.stringify(company))

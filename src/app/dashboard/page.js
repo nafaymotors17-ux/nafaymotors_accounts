@@ -1,32 +1,111 @@
-"use server";
-import Link from "next/link";
-import { getAccountsCount } from "../lib/accounting-actions/accounts";
-import { getAllCarriers } from "../lib/carriers-actions/carriers";
-import { getFilteredCars } from "../lib/carriers-actions/cars";
-import { getSession } from "../lib/auth/getSession";
-import { redirect } from "next/navigation";
+"use client";
 
-export default async function Dashboard() {
-  const session = await getSession();
-  
-  if (!session) {
-    redirect("/login");
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { getDashboardData } from "../lib/dashboard-actions/dashboard";
+
+export default function Dashboard() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    async function fetchDashboardData() {
+      try {
+        setLoading(true);
+        setError(null);
+        const result = await getDashboardData();
+        
+        if (result.error === "Unauthorized") {
+          router.push("/login");
+          return;
+        }
+        
+        if (result.error) {
+          setError(result.error);
+        } else {
+          setData(result);
+        }
+      } catch (err) {
+        console.error("Error loading dashboard:", err);
+        setError("Failed to load dashboard data");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchDashboardData();
+  }, [router]);
+
+  if (loading) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="mb-6">
+          <div className="h-8 w-48 bg-gray-200 rounded animate-pulse mb-2"></div>
+          <div className="h-4 w-64 bg-gray-200 rounded animate-pulse"></div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+              <div className="h-4 w-24 bg-gray-200 rounded animate-pulse mb-2"></div>
+              <div className="h-8 w-16 bg-gray-200 rounded animate-pulse"></div>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+            <div className="h-6 w-32 bg-gray-200 rounded animate-pulse mb-4"></div>
+            <div className="space-y-2">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="flex justify-between items-center p-2">
+                  <div className="flex-1">
+                    <div className="h-4 w-32 bg-gray-200 rounded animate-pulse mb-1"></div>
+                    <div className="h-3 w-24 bg-gray-200 rounded animate-pulse"></div>
+                  </div>
+                  <div className="h-3 w-12 bg-gray-200 rounded animate-pulse"></div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+            <div className="h-6 w-32 bg-gray-200 rounded animate-pulse mb-4"></div>
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-12 w-full bg-gray-200 rounded-lg animate-pulse"></div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
-  // Only fetch accounts count if user is super admin
-  const totalAccounts = session.role === "super_admin" ? await getAccountsCount() : 0;
-  
-  // Get user's own data (or all if super admin)
-  const carriersResult = await getAllCarriers({ limit: 5 });
-  const carriers = carriersResult.carriers || [];
-  
-  // Get user's own cars (or all if super admin)
-  const recentCarsResult = await getFilteredCars({});
-  const recentCars = recentCarsResult.cars || [];
-  
-  // Calculate totals
-  const totalCars = recentCars.length;
-  const totalAmount = recentCars.reduce((sum, car) => sum + (car.amount || 0), 0);
+  if (error) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-red-800">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!data || !data.session) {
+    return null;
+  }
+
+  const { session, totalAccounts, carriers, stats } = data;
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -41,26 +120,18 @@ export default async function Dashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-          <h3 className="text-sm font-medium text-gray-600 mb-1">Total Cars</h3>
-          <p className="text-2xl font-bold text-gray-800">{totalCars}</p>
+          <h3 className="text-sm font-medium text-gray-600 mb-1">Total Trips</h3>
+          <p className="text-2xl font-bold text-gray-800">{stats.totalTrips}</p>
         </div>
         
         <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-          <h3 className="text-sm font-medium text-gray-600 mb-1">Total Amount</h3>
-          <p className="text-2xl font-bold text-green-600">
-            R {totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-          </p>
+          <h3 className="text-sm font-medium text-gray-600 mb-1">Active Trips</h3>
+          <p className="text-2xl font-bold text-green-600">{stats.activeTrips}</p>
         </div>
 
         <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-          <h3 className="text-sm font-medium text-gray-600 mb-1">Active Trips</h3>
-          <p className="text-2xl font-bold text-blue-600">{carriers.length}</p>
-          <Link
-            href="/carriers"
-            className="text-xs text-blue-600 hover:text-blue-700 underline mt-1 inline-block"
-          >
-            View All
-          </Link>
+          <h3 className="text-sm font-medium text-gray-600 mb-1">Inactive Trips</h3>
+          <p className="text-2xl font-bold text-red-600">{stats.inactiveTrips}</p>
         </div>
 
         {session.role === "super_admin" && (
@@ -95,7 +166,7 @@ export default async function Dashboard() {
                     </p>
                   </div>
                   <Link
-                    href={`/carriers?carrier=${carrier._id}`}
+                    href={`/carrier-trips?carrier=${carrier._id}`}
                     className="text-xs text-blue-600 hover:text-blue-700"
                   >
                     View
@@ -110,10 +181,10 @@ export default async function Dashboard() {
           <h2 className="text-lg font-semibold text-gray-800 mb-4">Quick Actions</h2>
           <div className="space-y-2">
             <Link
-              href="/carriers"
+              href="/carrier-trips"
               className="block p-3 bg-blue-50 hover:bg-blue-100 rounded-lg text-blue-700 font-medium text-sm transition-colors"
             >
-              View All Carriers
+              View All Carrier Trips
             </Link>
             {session.role === "super_admin" && (
               <Link

@@ -110,9 +110,7 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
                   placeholder="e.g., TRIP-001"
                   disabled={isSubmitting}
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Companies are created automatically when you add cars to trips
-                </p>
+               
               </div>
 
               <div>

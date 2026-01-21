@@ -51,6 +51,7 @@ export default async function CarriersPage({ searchParams }) {
           companies={companies} 
           carriers={carriers} 
           isSuperAdmin={session?.role === "super_admin"}
+          users={users}
         />
 
         {/* Simple Carriers Table */}
