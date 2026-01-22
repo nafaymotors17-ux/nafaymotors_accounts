@@ -278,7 +278,7 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Amount ($) *
+                    Amount (R) *
                   </label>
                   <input
                     type="number"
@@ -290,7 +290,7 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     disabled={isSubmitting}
                   />
-                  <p className="text-xs text-gray-500 mt-1">Enter the amount in dollars</p>
+                  <p className="text-xs text-gray-500 mt-1">Enter the amount in Rand</p>
                 </div>
 
               </div>

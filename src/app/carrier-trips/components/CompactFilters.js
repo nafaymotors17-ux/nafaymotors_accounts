@@ -23,12 +23,14 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
     const startDate = formData.get("startDate");
     const endDate = formData.get("endDate");
     const company = formData.get("company");
+    const carrierName = formData.get("carrierName");
     const isActive = formData.get("isActive");
     const userId = formData.get("userId");
 
     if (startDate) newParams.set("startDate", startDate);
     if (endDate) newParams.set("endDate", endDate);
     if (company) newParams.set("company", company);
+    if (carrierName) newParams.set("carrierName", carrierName);
     if (isActive) newParams.set("isActive", isActive);
     if (userId && isSuperAdmin) newParams.set("userId", userId);
 
@@ -67,9 +69,10 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
   };
 
   const hasActiveFilters =
-    params.get("startDate") || params.get("endDate") || params.get("company") || params.get("isActive") || params.get("userId");
+    params.get("startDate") || params.get("endDate") || params.get("company") || params.get("carrierName") || params.get("isActive") || params.get("userId");
   
   const selectedCompany = params.get("company") || "";
+  const selectedCarrierName = params.get("carrierName") || "";
   const startDate = params.get("startDate") || "";
   const endDate = params.get("endDate") || "";
   const selectedIsActive = params.get("isActive") || "";
@@ -144,6 +147,20 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
                 <Plus className="w-3 h-3" />
               </button>
             </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <label className="text-[10px] font-medium text-gray-600 whitespace-nowrap">
+              Carrier:
+            </label>
+            <input
+              type="text"
+              name="carrierName"
+              key={`carrierName-${selectedCarrierName}`}
+              defaultValue={selectedCarrierName}
+              placeholder="Search carrier..."
+              className="w-32 px-1.5 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            />
           </div>
 
           <div className="flex items-center gap-1.5">

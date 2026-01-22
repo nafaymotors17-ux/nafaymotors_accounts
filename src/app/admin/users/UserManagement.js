@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createUser, deleteUser } from "@/app/lib/users-actions/users";
-import { Plus, Trash2, X } from "lucide-react";
+import { createUser, deleteUser, updateUser } from "@/app/lib/users-actions/users";
+import { Plus, Trash2, X, Edit } from "lucide-react";
 
 export default function UserManagement({ users }) {
   const router = useRouter();
   const [showForm, setShowForm] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -18,14 +19,21 @@ export default function UserManagement({ users }) {
 
     try {
       const formData = new FormData(e.target);
-      const result = await createUser(formData);
+      let result;
+      
+      if (editingUser) {
+        result = await updateUser(editingUser._id, formData);
+      } else {
+        result = await createUser(formData);
+      }
 
       if (result.success) {
         router.refresh();
         setShowForm(false);
+        setEditingUser(null);
         e.target.reset();
       } else {
-        setError(result.error || "Failed to create user");
+        setError(result.error || `Failed to ${editingUser ? 'update' : 'create'} user`);
       }
     } catch (err) {
       setError("An error occurred");
@@ -33,6 +41,18 @@ export default function UserManagement({ users }) {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleEdit = (user) => {
+    // Ensure we have a fresh copy of the user with all fields
+    setEditingUser({
+      _id: user._id,
+      username: user.username || "",
+      address: user.address || "",
+      role: user.role,
+    });
+    setShowForm(true);
+    setError(null);
   };
 
   const handleDelete = async (userId) => {
@@ -70,10 +90,11 @@ export default function UserManagement({ users }) {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
             <div className="flex justify-between items-center p-6 border-b">
-              <h2 className="text-xl font-semibold">Create New User</h2>
+              <h2 className="text-xl font-semibold">{editingUser ? "Edit User" : "Create New User"}</h2>
               <button
                 onClick={() => {
                   setShowForm(false);
+                  setEditingUser(null);
                   setError(null);
                 }}
                 className="text-gray-400 hover:text-gray-600"
@@ -82,7 +103,7 @@ export default function UserManagement({ users }) {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6">
+            <form onSubmit={handleSubmit} key={editingUser?._id || "new"} className="p-6">
               {error && (
                 <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
                   {error}
@@ -98,6 +119,8 @@ export default function UserManagement({ users }) {
                     type="text"
                     name="username"
                     required
+                    key={`username-${editingUser?._id || "new"}`}
+                    defaultValue={editingUser?.username || ""}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     disabled={isSubmitting}
                   />
@@ -105,12 +128,29 @@ export default function UserManagement({ users }) {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Password *
+                    Password {editingUser ? "(leave empty to keep current)" : "*"}
                   </label>
                   <input
                     type="password"
                     name="password"
-                    required
+                    required={!editingUser}
+                    key={`password-${editingUser?._id || "new"}`}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    disabled={isSubmitting}
+                    placeholder={editingUser ? "Leave empty to keep current password" : ""}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Address
+                  </label>
+                  <textarea
+                    name="address"
+                    rows={3}
+                    key={`address-${editingUser?._id || "new"}`}
+                    defaultValue={editingUser?.address || ""}
+                    placeholder="User address (used for invoices)"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     disabled={isSubmitting}
                   />
@@ -123,6 +163,7 @@ export default function UserManagement({ users }) {
                   type="button"
                   onClick={() => {
                     setShowForm(false);
+                    setEditingUser(null);
                     setError(null);
                   }}
                   className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
@@ -135,7 +176,9 @@ export default function UserManagement({ users }) {
                   disabled={isSubmitting}
                   className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300"
                 >
-                  {isSubmitting ? "Creating..." : "Create User"}
+                  {isSubmitting 
+                    ? (editingUser ? "Updating..." : "Creating...") 
+                    : (editingUser ? "Update User" : "Create User")}
                 </button>
               </div>
             </form>
@@ -153,8 +196,8 @@ export default function UserManagement({ users }) {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                 Role
               </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                Actions
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                Address
               </th>
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
                 Actions
@@ -178,13 +221,26 @@ export default function UserManagement({ users }) {
                     {user.role === "super_admin" ? "Super Admin" : "User"}
                   </span>
                 </td>
+                <td className="px-6 py-4 text-sm text-gray-600">
+                  {user.address || <span className="text-gray-400">No address</span>}
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  <button
-                    onClick={() => handleDelete(user._id)}
-                    className="text-red-600 hover:text-red-900"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => handleEdit(user)}
+                      className="text-blue-600 hover:text-blue-900"
+                      title="Edit User"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(user._id)}
+                      className="text-red-600 hover:text-red-900"
+                      title="Delete User"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

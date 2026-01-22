@@ -11,7 +11,7 @@ export async function getAllUsers() {
     await requireSuperAdmin(); // Only super admin can view users
     
     const users = await User.find({})
-      .select("-password")
+      .select("_id username role address createdAt updatedAt")
       .sort({ createdAt: -1 })
       .lean();
 
@@ -44,7 +44,7 @@ export async function getAllUsersForSelection() {
     }
     
     const users = await User.find({})
-      .select("_id username role")
+      .select("_id username role address")
       .sort({ username: 1 })
       .lean();
 
@@ -61,6 +61,33 @@ export async function getAllUsersForSelection() {
   }
 }
 
+// Get current user details
+export async function getCurrentUser() {
+  await connectDB();
+  try {
+    const session = await getSession();
+    if (!session) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const user = await User.findById(session.userId)
+      .select("_id username role address")
+      .lean();
+
+    if (!user) {
+      return { success: false, error: "User not found" };
+    }
+
+    return {
+      success: true,
+      user: JSON.parse(JSON.stringify(user)),
+    };
+  } catch (error) {
+    console.error("Error fetching current user:", error);
+    return { success: false, error: "Failed to fetch user" };
+  }
+}
+
 export async function createUser(formData) {
   await connectDB();
   try {
@@ -68,6 +95,7 @@ export async function createUser(formData) {
 
     const username = formData.get("username")?.trim().toLowerCase();
     const password = formData.get("password");
+    const address = formData.get("address")?.trim() || "";
 
     if (!username || !password) {
       return { success: false, error: "Username and password are required" };
@@ -83,6 +111,7 @@ export async function createUser(formData) {
       username,
       password, // Plain text
       role: "user",
+      address,
     });
 
     await user.save();
@@ -94,6 +123,7 @@ export async function createUser(formData) {
         id: user._id.toString(),
         username: user.username,
         role: user.role,
+        address: user.address,
       },
     };
   } catch (error) {
@@ -101,6 +131,72 @@ export async function createUser(formData) {
     return { success: false, error: "Failed to create user" };
   }
 }
+
+export async function updateUser(userId, formData) {
+  await connectDB();
+
+  try {
+    await requireSuperAdmin();
+
+    const username = formData.get("username")?.trim().toLowerCase();
+    const password = formData.get("password");
+    const address = formData.get("address")?.trim() || "";
+
+    if (!username) {
+      return { success: false, error: "Username is required" };
+    }
+
+    const existingUser = await User.findOne({
+      username,
+      _id: { $ne: userId },
+    });
+
+    if (existingUser) {
+      return { success: false, error: "Username already exists" };
+    }
+
+    const updateData = {
+      username,
+      address,
+    };
+
+    // Only update password if provided
+    if (password && password.trim() !== "") {
+      updateData.password = password;
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      updateData,
+      { new: true } // 👈 IMPORTANT
+    );
+
+    if (!updatedUser) {
+      return { success: false, error: "Failed to update user" };
+    }
+
+    console.log("[updateUser] Updated user:", updatedUser);
+
+    revalidatePath("/admin/users");
+
+    return {
+      success: true,
+      user: {
+        id: updatedUser._id.toString(),
+        username: updatedUser.username,
+        role: updatedUser.role,
+        address: updatedUser.address || "",
+      },
+    };
+  } catch (error) {
+    console.error("[updateUser] Error updating user:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to update user",
+    };
+  }
+}
+
 
 export async function deleteUser(userId) {
   await connectDB();

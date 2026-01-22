@@ -17,6 +17,10 @@ const UserSchema = new mongoose.Schema({
     enum: ["super_admin", "user"],
     default: "user",
   },
+  address: {
+    type: String,
+    trim: true,
+  },
 });
 
 // Simple password comparison

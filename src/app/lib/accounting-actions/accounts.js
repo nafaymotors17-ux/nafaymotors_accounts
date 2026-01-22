@@ -11,7 +11,6 @@ export async function getAccounts(searchParams = {}) {
     // Only super admin can access accounting
     await requireSuperAdmin();
   } catch (error) {
-    console.error("[getAccounts] Access denied:", error.message);
     return {
       accounts: [],
       pagination: {
@@ -74,7 +73,6 @@ export async function getAccounts(searchParams = {}) {
       },
     };
   } catch (error) {
-    console.error("Error fetching accounts:", error);
     return {
       accounts: [],
       pagination: {
@@ -97,7 +95,6 @@ export async function getAccountsCount() {
     return totalAccounts;
   } catch (error) {
     // If not super admin or other error, return 0
-    console.error("[getAccountsCount] Error:", error.message);
     return 0;
   }
 }
@@ -106,7 +103,6 @@ export async function createAccount(formData) {
     // Only super admin can create accounts
     await requireSuperAdmin();
   } catch (error) {
-    console.error("[createAccount] Access denied:", error.message);
     return { error: "Access denied: Super admin required" };
   }
   
@@ -151,7 +147,6 @@ export async function createAccount(formData) {
     revalidatePath("/");
     return { success: true, message: "Account created successfully" };
   } catch (error) {
-    console.error("Error creating account:", error);
     // Return more specific error message
     if (error.code === 11000) {
       return { error: "Account with this slug already exists" };

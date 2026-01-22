@@ -20,7 +20,6 @@ export async function getCarsByCarrier(carrierId) {
     if (typeof carrierId === 'string' && mongoose.Types.ObjectId.isValid(carrierId)) {
       carrierObjectId = new mongoose.Types.ObjectId(carrierId);
     } else if (!mongoose.Types.ObjectId.isValid(carrierId)) {
-      console.error(`[getCarsByCarrier] Invalid carrierId: ${carrierId}`);
       return { cars: [] };
     }
 
@@ -34,20 +33,15 @@ export async function getCarsByCarrier(carrierId) {
       query.userId = userObjectId;
     }
 
-    console.log(`[getCarsByCarrier] Query for carrier ${carrierId}:`, JSON.stringify(query));
-
     const cars = await Car.find(query)
       .populate("carrier", "tripNumber name type date totalExpense")
       .sort({ date: 1, createdAt: 1 })
       .lean();
 
-    console.log(`[getCarsByCarrier] Found ${cars.length} cars for carrier ${carrierId}`);
-
     return {
       cars: JSON.parse(JSON.stringify(cars)),
     };
   } catch (error) {
-    console.error("Error fetching cars:", error);
     return { cars: [] };
   }
 }
@@ -139,7 +133,6 @@ export async function createCar(formData) {
       : session.userId;
     
     if (!stockNo || !name || !chassis || !companyName || !carrierId) {
-      console.error(`[createCar] Missing required fields:`, { stockNo, name, chassis, companyName, carrierId });
       return { error: "Required fields are missing" };
     }
 
@@ -148,7 +141,6 @@ export async function createCar(formData) {
     if (typeof carrierId === 'string' && mongoose.Types.ObjectId.isValid(carrierId)) {
       tripCarrierId = new mongoose.Types.ObjectId(carrierId);
     } else if (!mongoose.Types.ObjectId.isValid(carrierId)) {
-      console.error(`[createCar] Invalid carrierId format: ${carrierId}`);
       return { error: "Invalid trip/carrier ID" };
     }
 
@@ -172,7 +164,6 @@ export async function createCar(formData) {
       message: "Car added successfully",
     };
   } catch (error) {
-    console.error("Error creating car:", error);
     return { error: "Failed to add car" };
   }
 }
@@ -224,7 +215,6 @@ export async function createMultipleCars(carsData, carrierId, selectedUserId = n
       message: `${results.length} car(s) added successfully`,
     };
   } catch (error) {
-    console.error("Error creating multiple cars:", error);
     return { error: "Failed to add cars" };
   }
 }
@@ -240,7 +230,6 @@ export async function deleteCar(carId) {
     revalidatePath("/carrier-trips");
     return { success: true, message: "Car deleted successfully" };
   } catch (error) {
-    console.error("Error deleting car:", error);
     return { error: "Failed to delete car" };
   }
 }
@@ -393,7 +382,6 @@ export async function getCarsByCompany(filters = {}) {
       groupBy,
     };
   } catch (error) {
-    console.error("Error fetching cars by company:", error);
     return {
       success: false,
       error: "Failed to fetch cars",

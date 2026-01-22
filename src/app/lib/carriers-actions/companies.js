@@ -15,7 +15,6 @@ export async function getAllCompanies() {
   try {
     const session = await getSession();
     if (!session) {
-      console.log("[getAllCompanies] No session found");
       return { companies: [] };
     }
 
@@ -26,11 +25,8 @@ export async function getAllCompanies() {
     if (mongoose.Types.ObjectId.isValid(targetUserId)) {
       targetUserId = new mongoose.Types.ObjectId(targetUserId);
     } else {
-      console.log("[getAllCompanies] Invalid userId format:", session.userId);
       return { companies: [] };
     }
-    
-    console.log(`[getAllCompanies] User: ${session.userId}, Role: ${session.role}, TargetUserId: ${targetUserId}`);
     
     // Build query for Carrier companies - filter by userId if not super admin
     // Only get companies (type='company'), NOT trips (type='trip')
@@ -43,9 +39,6 @@ export async function getAllCompanies() {
     // Filter by userId if user is not super admin
     if (session.role !== "super_admin") {
       carrierQuery.userId = targetUserId;
-      console.log(`[getAllCompanies] Filtering Carrier companies by userId: ${targetUserId.toString()}`);
-    } else {
-      console.log(`[getAllCompanies] Admin user - fetching all Carrier companies`);
     }
     
     // 1. Get companies from Carrier collection (only type='company', not trips)
@@ -57,7 +50,6 @@ export async function getAllCompanies() {
     }
     
     const carrierCompanies = await carrierQueryWithPopulate.lean();
-    console.log(`[getAllCompanies] Found ${carrierCompanies.length} companies from Carrier collection`);
     
     allCompanies.push(...carrierCompanies);
     
@@ -73,9 +65,6 @@ export async function getAllCompanies() {
         };
         if (session.role !== "super_admin") {
           companyQuery.userId = targetUserId;
-          console.log(`[getAllCompanies] Filtering Company model by userId: ${targetUserId.toString()}`);
-        } else {
-          console.log(`[getAllCompanies] Admin user - fetching all Company model companies`);
         }
 
         let companyModelQuery = Company.find(companyQuery).sort({ name: 1 });
@@ -86,7 +75,6 @@ export async function getAllCompanies() {
         }
         
         const companyModelCompanies = await companyModelQuery.lean();
-        console.log(`[getAllCompanies] Found ${companyModelCompanies.length} companies from Company model`);
         
         // Include full company details (for invoice senders)
         const converted = companyModelCompanies.map(company => ({
@@ -111,7 +99,6 @@ export async function getAllCompanies() {
       }
     } catch (e) {
       // Company collection doesn't exist or can't be queried - that's okay
-      console.log("Company collection not accessible:", e.message);
     }
     
     // Remove duplicates based on name (case-insensitive)
@@ -151,16 +138,10 @@ export async function getAllCompanies() {
       return serializedCompany;
     });
     
-    console.log(`[getAllCompanies] Total unique companies after deduplication: ${serialized.length}`);
-    if (serialized.length > 0 && session.role !== "super_admin") {
-      console.log(`[getAllCompanies] Sample company userIds:`, serialized.slice(0, 3).map(c => ({ name: c.name, userId: c.userId })));
-    }
-    
     return {
       companies: JSON.parse(JSON.stringify(serialized)),
     };
   } catch (error) {
-    console.error("Error fetching companies:", error);
     return { companies: [] };
   }
 }

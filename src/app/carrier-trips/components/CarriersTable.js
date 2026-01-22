@@ -80,19 +80,19 @@ export default function CarriersTable({ carriers, cars, companies }) {
                       <div>
                         <span className="text-gray-600">Total:</span>
                         <span className="font-semibold text-green-600 ml-2">
-                          ${carrierTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          R{carrierTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })}
                         </span>
                       </div>
                       <div>
                         <span className="text-gray-600">Expense:</span>
                         <span className="font-semibold text-red-600 ml-2">
-                          ${(carrier.totalExpense || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          R{(carrier.totalExpense || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
                         </span>
                       </div>
                       <div>
                         <span className="text-gray-600">Profit:</span>
                         <span className={`font-semibold ml-2 ${profit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                          ${profit.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          R{profit.toLocaleString("en-US", { minimumFractionDigits: 2 })}
                         </span>
                       </div>
                     </div>

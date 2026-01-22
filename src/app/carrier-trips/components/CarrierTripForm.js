@@ -23,9 +23,8 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
     try {
       let result;
       if (carrier) {
-        // Update expense only
-        const expense = formData.get("totalExpense");
-        result = await updateCarrierExpense(carrier._id, expense);
+        // Update expense, details, and notes
+        result = await updateCarrierExpense(carrier._id, formData);
       } else {
         // Create new carrier
         result = await createCarrier(formData);
@@ -51,23 +50,23 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-        <div className="flex justify-between items-center p-6 border-b">
-          <h2 className="text-xl font-semibold">
-            {carrier ? "Edit Trip Expense" : "Create New Trip"}
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-sm">
+        <div className="flex justify-between items-center p-3 border-b">
+          <h2 className="text-base font-semibold">
+            {carrier ? "Edit Trip" : "Create New Trip"}
           </h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-2xl"
+            className="text-gray-400 hover:text-gray-600"
             disabled={isSubmitting}
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-3 space-y-2.5 max-h-[80vh] overflow-y-auto">
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+            <div className="bg-red-50 border border-red-200 text-red-700 px-2 py-1.5 rounded text-xs">
               {error}
             </div>
           )}
@@ -76,14 +75,14 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
             <>
               {user?.role === "super_admin" && users.length > 0 && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-medium text-gray-700 mb-0.5">
                     Create for User (Optional)
                   </label>
                   <select
                     name="userId"
                     value={selectedUserId}
                     onChange={(e) => setSelectedUserId(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
                     disabled={isSubmitting}
                   >
                     <option value="">Your own account</option>
@@ -93,28 +92,26 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-gray-500 mt-1">Leave empty to create for yourself</p>
                 </div>
               )}
 
               <input type="hidden" name="type" value="trip" />
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-gray-700 mb-0.5">
                   Trip Number *
                 </label>
                 <input
                   type="text"
                   name="tripNumber"
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
                   placeholder="e.g., TRIP-001"
                   disabled={isSubmitting}
                 />
-               
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-gray-700 mb-0.5">
                   Date *
                 </label>
                 <input
@@ -122,7 +119,65 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
                   name="date"
                   required
                   defaultValue={new Date().toISOString().split("T")[0]}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
+                  disabled={isSubmitting}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-0.5">
+                  Carrier Name
+                </label>
+                <input
+                  type="text"
+                  name="carrierName"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
+                  placeholder="e.g., ABC Transport"
+                  disabled={isSubmitting}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-0.5">
+                  Driver Name
+                </label>
+                <input
+                  type="text"
+                  name="driverName"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
+                  placeholder="e.g., John Doe"
+                  disabled={isSubmitting}
+                />
+              </div>
+            </>
+          )}
+
+          {carrier && (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-0.5">
+                  Carrier Name
+                </label>
+                <input
+                  type="text"
+                  name="carrierName"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
+                  placeholder="e.g., ABC Transport"
+                  defaultValue={carrier?.carrierName || ""}
+                  disabled={isSubmitting}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-0.5">
+                  Driver Name
+                </label>
+                <input
+                  type="text"
+                  name="driverName"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
+                  placeholder="e.g., John Doe"
+                  defaultValue={carrier?.driverName || ""}
                   disabled={isSubmitting}
                 />
               </div>
@@ -130,7 +185,7 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-xs font-medium text-gray-700 mb-0.5">
               Total Expense
             </label>
             <input
@@ -138,31 +193,44 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
               step="0.01"
               name="totalExpense"
               defaultValue={carrier?.totalExpense || "0"}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
               disabled={isSubmitting}
             />
           </div>
 
-          {!carrier && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Notes
-              </label>
-              <textarea
-                name="notes"
-                rows="3"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                placeholder="Optional notes..."
-                disabled={isSubmitting}
-              />
-            </div>
-          )}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-0.5">
+              Expense Details
+            </label>
+            <textarea
+              name="details"
+              rows="2"
+              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md resize-none"
+              placeholder="What was the expense for?"
+              defaultValue={carrier?.details || ""}
+              disabled={isSubmitting}
+            />
+          </div>
 
-          <div className="flex justify-end space-x-3 pt-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-0.5">
+              Notes
+            </label>
+            <textarea
+              name="notes"
+              rows="2"
+              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md resize-none"
+              placeholder="Additional notes..."
+              defaultValue={carrier?.notes || ""}
+              disabled={isSubmitting}
+            />
+          </div>
+
+          <div className="flex justify-end space-x-2 pt-2 border-t">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              className="px-3 py-1.5 text-xs border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
               disabled={isSubmitting}
             >
               Cancel
@@ -170,9 +238,9 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed"
             >
-              {isSubmitting ? "Saving..." : carrier ? "Update Expense" : "Create Trip"}
+              {isSubmitting ? "Saving..." : carrier ? "Update" : "Create"}
             </button>
           </div>
         </form>

@@ -64,7 +64,7 @@ export default function AccountForm({ onClose }) {
               name="title"
               required
               className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              placeholder="e.g., OS Motors USD"
+              placeholder="e.g., OS Motors ZAR"
               disabled={isSubmitting}
             />
           </div>
@@ -78,7 +78,7 @@ export default function AccountForm({ onClose }) {
               name="slug"
               required
               className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              placeholder="e.g., os_motors_usd"
+              placeholder="e.g., os_motors_zar"
               disabled={isSubmitting}
             />
           </div>
@@ -107,7 +107,8 @@ export default function AccountForm({ onClose }) {
               name="currency"
               required
               className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              placeholder="e.g., USD"
+              placeholder="e.g., ZAR"
+              defaultValue="ZAR"
               disabled={isSubmitting}
             />
           </div>
@@ -121,7 +122,8 @@ export default function AccountForm({ onClose }) {
               name="currencySymbol"
               required
               className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              placeholder="e.g., $"
+              placeholder="e.g., R"
+              defaultValue="R"
               disabled={isSubmitting}
             />
           </div>

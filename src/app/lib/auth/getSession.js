@@ -19,7 +19,7 @@ export async function getSession(sessionData = null) {
     const sessionCookie = cookieStore.get("user_session");
 
     if (!sessionCookie) {
-      console.log("[getSession] No session cookie found");
+    
       return null;
     }
 
@@ -34,17 +34,11 @@ export async function getSession(sessionData = null) {
     
     const session = JSON.parse(decodedValue);
     
-    console.log("[getSession] Session retrieved from cookie:", {
-      userId: session.userId,
-      username: session.username,
-      role: session.role,
-      hasRole: !!session.role,
-      rawCookieLength: sessionCookie.value.length
-    });
+
     
     return session;
   } catch (error) {
-    console.error("[getSession] Error parsing session cookie:", error);
+   
     return null;
   }
 }
@@ -62,25 +56,14 @@ export async function requireAuth() {
 export async function requireSuperAdmin() {
   const session = await requireAuth();
   
-  console.log("[requireSuperAdmin] Session check:", {
-    userId: session.userId,
-    username: session.username,
-    role: session.role,
-    roleType: typeof session.role,
-    isSuperAdmin: session.role === "super_admin"
-  });
+
   
   // Check for super_admin role (case-insensitive for safety)
   const userRole = session.role?.toLowerCase();
   const isSuperAdmin = userRole === "super_admin";
   
   if (!isSuperAdmin) {
-    console.error("[requireSuperAdmin] Access denied:", {
-      username: session.username,
-      role: session.role,
-      expected: "super_admin",
-      received: session.role
-    });
+
     throw new Error("Forbidden: Super admin access required");
   }
   

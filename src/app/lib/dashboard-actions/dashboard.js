@@ -147,7 +147,6 @@ export async function getDashboardData() {
       },
     };
   } catch (error) {
-    console.error("Error fetching dashboard data:", error);
     return {
       error: "Failed to fetch dashboard data",
       session: null,

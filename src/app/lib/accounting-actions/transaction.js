@@ -13,7 +13,6 @@ export async function createTransaction(formData) {
     // Only super admin can create transactions
     await requireSuperAdmin();
   } catch (error) {
-    console.error("[createTransaction] Access denied:", error.message);
     return { error: "Access denied: Super admin required" };
   }
   
@@ -104,7 +103,6 @@ export async function createTransaction(formData) {
     await session.abortTransaction();
     session.endSession();
 
-    console.error("Error creating transaction:", error);
     return { error: "Failed to create transaction" };
   }
 }
@@ -114,7 +112,6 @@ export async function getAllTransactions(filters = {}) {
     // Only super admin can access transactions
     await requireSuperAdmin();
   } catch (error) {
-    console.error("[getAllTransactions] Access denied:", error.message);
     return {
       transactions: [],
       pagination: {
@@ -294,7 +291,6 @@ export async function getAllTransactions(filters = {}) {
       totalPages: Math.ceil(total / limit),
     };
   } catch (error) {
-    console.error("Error fetching transactions:", error);
     return {
       transactions: [],
       total: 0,

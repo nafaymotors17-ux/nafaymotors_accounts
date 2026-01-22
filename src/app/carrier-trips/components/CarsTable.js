@@ -71,7 +71,7 @@ export default function CarsTable({ carrier, cars, companies, onClose }) {
                   <td className="px-3 py-2 whitespace-nowrap">{car.name}</td>
                   <td className="px-3 py-2 whitespace-nowrap font-mono text-xs">{car.chassis}</td>
                   <td className="px-3 py-2 whitespace-nowrap text-green-600 font-semibold">
-                    ${(car.amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    R{(car.amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap text-gray-600">{car.customer || "-"}</td>
                   <td className="px-3 py-2 whitespace-nowrap">
@@ -91,7 +91,7 @@ export default function CarsTable({ carrier, cars, companies, onClose }) {
                   Total:
                 </td>
                 <td className="px-3 py-2 text-green-600 font-bold">
-                  ${cars.reduce((sum, car) => sum + (car.amount || 0), 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  R{cars.reduce((sum, car) => sum + (car.amount || 0), 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
                 </td>
                 <td colSpan="2"></td>
               </tr>

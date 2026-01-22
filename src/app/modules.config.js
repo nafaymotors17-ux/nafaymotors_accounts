@@ -33,6 +33,13 @@ export const modules = [
     icon: '📦',
     enabled: true,
   },
+  {
+    id: 'invoices',
+    name: 'Invoices',
+    path: '/invoices',
+    icon: '📄',
+    enabled: true,
+  },
   // {
   //   id: 'sales',
   //   name: 'Sales',

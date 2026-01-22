@@ -56,6 +56,15 @@ export async function getAllCarriers(searchParams = {}) {
       }
     }
     
+    // Filter by carrier name
+    if (searchParams.carrierName) {
+      const carrierNameFilter = decodeURIComponent(searchParams.carrierName).trim();
+      if (carrierNameFilter) {
+        const escapedCarrierName = carrierNameFilter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        carrierMatchConditions.push({ carrierName: { $regex: escapedCarrierName, $options: "i" } });
+      }
+    }
+    
     // Date filter for carriers
     if (searchParams.startDate && searchParams.endDate) {
       const startDate = new Date(searchParams.startDate);
@@ -200,7 +209,6 @@ export async function getAllCarriers(searchParams = {}) {
       },
     };
   } catch (error) {
-    console.error("Error fetching carriers:", error);
     return {
       carriers: [],
       pagination: {
@@ -246,7 +254,6 @@ export async function getCarrierById(carrierId) {
       profit,
     };
   } catch (error) {
-    console.error("Error fetching carrier:", error);
     return { error: "Failed to fetch carrier" };
   }
 }
@@ -264,7 +271,10 @@ export async function createCarrier(formData) {
     const type = formData.get("type") || "trip";
     const date = formData.get("date");
     const totalExpense = parseFloat(formData.get("totalExpense") || "0");
-    const notes = formData.get("notes")?.trim();
+    const carrierName = formData.get("carrierName")?.trim() || "";
+    const driverName = formData.get("driverName")?.trim() || "";
+    const details = formData.get("details")?.trim() || "";
+    const notes = formData.get("notes")?.trim() || "";
     
     // Super admin can select userId, regular users use their own
     const selectedUserId = formData.get("userId");
@@ -317,6 +327,9 @@ export async function createCarrier(formData) {
       userId: targetUserId,
       date: date ? new Date(date) : new Date(),
       totalExpense: totalExpense || 0,
+      carrierName: carrierName || "",
+      driverName: driverName || "",
+      details: details || "",
       notes: notes || "",
       isActive: true, // Newly created trips are active by default
     });
@@ -356,7 +369,6 @@ export async function createCarrier(formData) {
       throw saveError; // Re-throw if not a duplicate key error
     }
   } catch (error) {
-    console.error("Error creating carrier:", error);
     // If it's still a duplicate key error after our handling, show warning
     if (error.code === 11000) {
       // Get type from formData in case it wasn't set in try block
@@ -371,12 +383,36 @@ export async function createCarrier(formData) {
   }
 }
 
-export async function updateCarrierExpense(carrierId, expense) {
+export async function updateCarrierExpense(carrierId, formData) {
   await connectDB();
   try {
+    const expense = formData.get("totalExpense");
+    const carrierName = formData.get("carrierName")?.trim() || "";
+    const driverName = formData.get("driverName")?.trim() || "";
+    const details = formData.get("details")?.trim() || "";
+    const notes = formData.get("notes")?.trim() || "";
+    
+    const updateData = {
+      totalExpense: parseFloat(expense) || 0,
+    };
+    
+    // Update carrier name, driver name, details, and notes
+    if (carrierName !== undefined) {
+      updateData.carrierName = carrierName;
+    }
+    if (driverName !== undefined) {
+      updateData.driverName = driverName;
+    }
+    if (details !== undefined) {
+      updateData.details = details;
+    }
+    if (notes !== undefined) {
+      updateData.notes = notes;
+    }
+    
     const carrier = await Carrier.findByIdAndUpdate(
       carrierId,
-      { totalExpense: parseFloat(expense) || 0 },
+      { $set: updateData },
       { new: true }
     ).lean();
 
@@ -385,12 +421,12 @@ export async function updateCarrierExpense(carrierId, expense) {
     }
 
     revalidatePath("/carriers");
+    revalidatePath("/carrier-trips");
     return {
       success: true,
       carrier: JSON.parse(JSON.stringify(carrier)),
     };
   } catch (error) {
-    console.error("Error updating carrier expense:", error);
     return { error: "Failed to update expense" };
   }
 }
@@ -400,7 +436,6 @@ export async function toggleCarrierActiveStatus(carrierId) {
   try {
     const session = await getSession();
     if (!session) {
-      console.error("Toggle active: No session found");
       return { error: "Unauthorized" };
     }
 
@@ -412,7 +447,6 @@ export async function toggleCarrierActiveStatus(carrierId) {
 
     const carrier = await Carrier.findById(carrierIdObj);
     if (!carrier) {
-      console.error("Toggle active: Carrier not found", { carrierId, carrierIdObj });
       return { error: "Carrier not found" };
     }
 
@@ -421,11 +455,6 @@ export async function toggleCarrierActiveStatus(carrierId) {
     const sessionUserId = session.userId?.toString();
     
     if (session.role !== "super_admin" && carrierUserId !== sessionUserId) {
-      console.error("Toggle active: Unauthorized", { 
-        carrierUserId, 
-        sessionUserId, 
-        role: session.role 
-      });
       return { error: "Unauthorized to modify this carrier" };
     }
 
@@ -433,12 +462,6 @@ export async function toggleCarrierActiveStatus(carrierId) {
     // Handle undefined/null as active (true) for backward compatibility
     const currentStatus = carrier.isActive !== false; // true if undefined/null/true
     carrier.isActive = !currentStatus; // Toggle to opposite
-    
-    console.log("Toggling carrier active status", {
-      carrierId: carrier._id.toString(),
-      oldStatus: currentStatus,
-      newStatus: carrier.isActive
-    });
     
     await carrier.save();
 
@@ -449,7 +472,6 @@ export async function toggleCarrierActiveStatus(carrierId) {
       message: carrier.isActive ? "Trip marked as active" : "Trip marked as inactive",
     };
   } catch (error) {
-    console.error("Error toggling carrier active status:", error);
     return { error: `Failed to update trip status: ${error.message}` };
   }
 }
@@ -475,7 +497,6 @@ export async function getFilteredCarriersWithCars(searchParams = {}) {
       if (mongoose.Types.ObjectId.isValid(session.userId)) {
         carQuery.userId = new mongoose.Types.ObjectId(session.userId);
       } else {
-        console.error("Invalid userId format:", session.userId);
         carQuery.userId = session.userId;
       }
     }
@@ -582,7 +603,6 @@ export async function getFilteredCarriersWithCars(searchParams = {}) {
       },
     };
   } catch (error) {
-    console.error("Error fetching filtered carriers:", error);
     return {
       carriers: [],
       pagination: {

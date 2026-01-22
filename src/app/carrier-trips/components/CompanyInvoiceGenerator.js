@@ -8,6 +8,8 @@ import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import { getCarsByCompany } from "@/app/lib/carriers-actions/cars";
 import { formatDate } from "@/app/lib/utils/dateFormat";
+import { getCurrentUser } from "@/app/lib/users-actions/users";
+import { createInvoice } from "@/app/lib/invoice-actions/invoices";
 
 export default function CompanyInvoiceGenerator({ companies, initialCompany = null, onClose }) {
   const params = useSearchParams();
@@ -21,13 +23,15 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
   const [cars, setCars] = useState([]);
   const [loading, setLoading] = useState(false);
   const [descriptions, setDescriptions] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
   
-  // Sender company details - user enters manually (user is the handling company)
+  // Sender company details - auto-filled from user profile, but editable
   const [senderCompanyName, setSenderCompanyName] = useState("");
   const [senderCompanyAddress, setSenderCompanyAddress] = useState("");
   
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [vatPercentage, setVatPercentage] = useState(""); // VAT percentage (e.g., 15 for 15%)
+  const [isSaving, setIsSaving] = useState(false);
 
   // Find the selected company from companies list
   const selectedCompany = useMemo(() => {
@@ -51,6 +55,26 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
       totalWithVat 
     };
   }, [cars, vatPercentage]);
+
+  // Fetch current user details on mount
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const result = await getCurrentUser();
+        if (result.success && result.user) {
+          setCurrentUser(result.user);
+          // Auto-fill company name with username (capitalized)
+          const username = result.user.username || "";
+          setSenderCompanyName(username.charAt(0).toUpperCase() + username.slice(1));
+          // Auto-fill address
+          setSenderCompanyAddress(result.user.address || "");
+        }
+      } catch (error) {
+        console.error("Error fetching user:", error);
+      }
+    };
+    fetchUser();
+  }, []);
 
   // Fetch cars only when company and date filters are applied
   useEffect(() => {
@@ -109,7 +133,41 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
     setDescriptions(updated);
   };
 
-  const generatePDF = () => {
+  const saveInvoice = async () => {
+    if (!selectedCompany || cars.length === 0) {
+      return { success: false, error: "No cars to invoice" };
+    }
+
+    if (!senderCompanyName.trim()) {
+      return { success: false, error: "Sender company name is required" };
+    }
+
+    try {
+      const invoiceData = {
+        senderCompanyName: senderCompanyName.trim(),
+        senderAddress: senderCompanyAddress.trim(),
+        clientCompanyName: clientName,
+        invoiceDate: new Date(),
+        startDate: startDateFilter,
+        endDate: endDateFilter,
+        carIds: cars.map(car => car._id),
+        subtotal: totals.totalAmount,
+        vatPercentage: totals.vatPercentage,
+        vatAmount: totals.vatAmount,
+        totalAmount: totals.totalWithVat,
+        descriptions: descriptions.filter(d => d.trim()),
+        isActive: isActiveFilter,
+      };
+
+      const result = await createInvoice(invoiceData);
+      return result;
+    } catch (error) {
+      console.error("Error saving invoice:", error);
+      return { success: false, error: "Failed to save invoice" };
+    }
+  };
+
+  const generatePDF = async () => {
     if (!selectedCompany || cars.length === 0) {
       alert("Please ensure company and date filters are applied and there are cars to invoice");
       return;
@@ -118,6 +176,20 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
     if (!senderCompanyName.trim()) {
       alert("Please enter sender company name");
       return;
+    }
+
+    // Save invoice first
+    setIsSaving(true);
+    const saveResult = await saveInvoice();
+    setIsSaving(false);
+
+    if (!saveResult.success) {
+      alert(saveResult.error || "Failed to save invoice. PDF will still be generated.");
+    } else {
+      // Update invoice number with the generated one
+      if (saveResult.invoice?.invoiceNumber) {
+        setInvoiceNumber(saveResult.invoice.invoiceNumber);
+      }
     }
 
     try {
@@ -159,7 +231,7 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
       doc.setTextColor(100);
-      const invoiceNoText = `INVOICE NO: ${invoiceNumber || "N/A"}`;
+      const invoiceNoText = `INVOICE NO: ${invoiceNumber || saveResult.invoice?.invoiceNumber || "N/A"}`;
       const invoiceDateText = `DATE: ${formatDate(new Date()).toUpperCase()}`;
       doc.text(invoiceNoText, pageWidth - margin, currentY, { align: "right" });
       currentY += 5;
@@ -297,7 +369,7 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
     }
   };
 
-  const generateExcel = () => {
+  const generateExcel = async () => {
     if (!selectedCompany || cars.length === 0) {
       alert("Please ensure company and date filters are applied and there are cars to invoice");
       return;
@@ -306,6 +378,20 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
     if (!senderCompanyName.trim()) {
       alert("Please enter sender company name");
       return;
+    }
+
+    // Save invoice first
+    setIsSaving(true);
+    const saveResult = await saveInvoice();
+    setIsSaving(false);
+
+    if (!saveResult.success) {
+      alert(saveResult.error || "Failed to save invoice. Excel will still be generated.");
+    } else {
+      // Update invoice number with the generated one
+      if (saveResult.invoice?.invoiceNumber) {
+        setInvoiceNumber(saveResult.invoice.invoiceNumber);
+      }
     }
 
     try {
@@ -319,7 +405,7 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
         [],
         [clientName.toUpperCase()],
         [],
-        [`INVOICE NO: ${invoiceNumber || "N/A"}`, `DATE: ${formatDate(new Date()).toUpperCase()}`],
+        [`INVOICE NO: ${invoiceNumber || saveResult.invoice?.invoiceNumber || "N/A"}`, `DATE: ${formatDate(new Date()).toUpperCase()}`],
         [],
         ["SR", "DATE", "STOCK", "CLIENT NAME", "VEHICLE", "CHASSIS", "AMOUNT"],
       ];
@@ -419,9 +505,12 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
                   type="text"
                   value={invoiceNumber}
                   onChange={(e) => setInvoiceNumber(e.target.value.toUpperCase())}
-                  placeholder="e.g., D0005"
-                  className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                  placeholder="Auto-generated when saved"
+                  className="w-full px-2 py-1 border border-gray-300 rounded text-xs bg-gray-50"
+                  readOnly
+                  title="Invoice number is auto-generated when you save/generate the invoice"
                 />
+                <p className="text-[9px] text-gray-500 mt-0.5">Auto-generated</p>
               </div>
 
               <div>
@@ -622,19 +711,19 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
             </button>
             <button
               onClick={generateExcel}
-              disabled={!selectedCompany || !senderCompanyName.trim() || cars.length === 0 || loading}
+              disabled={!selectedCompany || !senderCompanyName.trim() || cars.length === 0 || loading || isSaving}
               className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-1"
             >
               <FileSpreadsheet className="w-3 h-3" />
-              Excel
+              {isSaving ? "Saving..." : "Excel"}
             </button>
             <button
               onClick={generatePDF}
-              disabled={!selectedCompany || !senderCompanyName.trim() || cars.length === 0 || loading}
+              disabled={!selectedCompany || !senderCompanyName.trim() || cars.length === 0 || loading || isSaving}
               className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-1"
             >
               <Download className="w-3 h-3" />
-              PDF
+              {isSaving ? "Saving..." : "PDF"}
             </button>
           </div>
         </div>

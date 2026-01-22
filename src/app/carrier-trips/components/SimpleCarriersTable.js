@@ -146,6 +146,9 @@ export default function SimpleCarriersTable({
           "Trip Number": carrier.tripNumber || carrier.name || "N/A",
           "Type": carrier.type === "company" ? "Company" : carrier.type === "trip" ? "Trip" : "N/A",
           "Date": formatDate(carrier.date),
+          "Carrier Name": carrier.carrierName || "",
+          "Driver Name": carrier.driverName || "",
+          "Expense Details": carrier.details || "",
           "Notes": carrier.notes || "",
           "Status": carrier.isActive === false ? "Inactive" : "Active",
           "Cars Count": carrier.carCount || 0,
@@ -166,6 +169,9 @@ export default function SimpleCarriersTable({
         { wch: 15 },  // Trip Number
         { wch: 10 },  // Type
         { wch: 12 },  // Date
+        { wch: 15 },  // Carrier Name
+        { wch: 15 },  // Driver Name
+        { wch: 30 },  // Expense Details
         { wch: 30 },  // Notes
         { wch: 10 },  // Status
         { wch: 10 },  // Cars Count
@@ -299,6 +305,8 @@ export default function SimpleCarriersTable({
                     <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">USER</th>
                   )}
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">DATE</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">DRIVER</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">DETAILS</th>
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">NOTES</th>
                   <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">CARS</th>
                   <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">TOTAL</th>
@@ -367,6 +375,12 @@ export default function SimpleCarriersTable({
                         <td className="px-2 py-1.5 text-gray-600 whitespace-nowrap">
                           {formatDate(carrier.date)}
                         </td>
+                        <td className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[100px] truncate" title={carrier.driverName || ""}>
+                          {carrier.driverName || "-"}
+                        </td>
+                        <td className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[150px] truncate" title={carrier.details || ""}>
+                          {carrier.details || "-"}
+                        </td>
                         <td className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[150px] truncate" title={carrier.notes || ""}>
                           {carrier.notes || "-"}
                         </td>
@@ -374,19 +388,19 @@ export default function SimpleCarriersTable({
                           {carrier.carCount || 0}
                         </td>
                         <td className="px-2 py-1.5 text-right text-green-600 font-semibold whitespace-nowrap">
-                          ${(carrier.totalAmount || 0).toLocaleString("en-US", {
+                          R{(carrier.totalAmount || 0).toLocaleString("en-US", {
                             minimumFractionDigits: 2,
                           })}
                         </td>
                         <td className="px-2 py-1.5 text-right text-red-600 whitespace-nowrap">
-                          ${(carrier.totalExpense || 0).toLocaleString("en-US", {
+                          R{(carrier.totalExpense || 0).toLocaleString("en-US", {
                             minimumFractionDigits: 2,
                           })}
                         </td>
                         <td className={`px-2 py-1.5 text-right font-semibold whitespace-nowrap ${
                           profit >= 0 ? "text-green-600" : "text-red-600"
                         }`}>
-                          ${profit.toLocaleString("en-US", {
+                          R{profit.toLocaleString("en-US", {
                             minimumFractionDigits: 2,
                           })}
                         </td>
@@ -430,7 +444,7 @@ export default function SimpleCarriersTable({
                       {/* Expanded Cars Table */}
                       {isExpanded && (
                         <tr>
-                          <td colSpan={isSuperAdmin ? 10 : 9} className="px-0 py-0 bg-gray-50">
+                          <td colSpan={isSuperAdmin ? 12 : 11} className="px-0 py-0 bg-gray-50">
                             <div className="px-2 py-2">
                               <div className="flex justify-between items-center mb-2">
                                 <h4 className="text-xs font-semibold text-gray-700">
@@ -504,7 +518,7 @@ export default function SimpleCarriersTable({
                                             {car.chassis}
                                           </td>
                                           <td className="px-1.5 py-1 text-right text-green-600 font-semibold whitespace-nowrap">
-                                            ${(car.amount || 0).toLocaleString("en-US", {
+                                            R{(car.amount || 0).toLocaleString("en-US", {
                                               minimumFractionDigits: 2,
                                             })}
                                           </td>
@@ -532,7 +546,7 @@ export default function SimpleCarriersTable({
                                           Total:
                                         </td>
                                         <td className="px-1.5 py-1 text-right text-green-600 font-bold text-xs">
-                                          ${carsTotal.toLocaleString("en-US", {
+                                          R{carsTotal.toLocaleString("en-US", {
                                             minimumFractionDigits: 2,
                                           })}
                                         </td>

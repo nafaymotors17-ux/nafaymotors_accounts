@@ -14,6 +14,11 @@ const CarrierSchema = new mongoose.Schema({
     uppercase: true,
     sparse: true,
   },
+  type: {
+    type: String,
+    enum: ["trip", "company"],
+    default: "trip",
+  },
   date: {
     type: Date,
     default: Date.now,
@@ -31,6 +36,18 @@ const CarrierSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true,
+  },
+  carrierName: {
+    type: String,
+    trim: true,
+  },
+  driverName: {
+    type: String,
+    trim: true,
+  },
+  details: {
+    type: String,
+    trim: true,
   },
   notes: {
     type: String,

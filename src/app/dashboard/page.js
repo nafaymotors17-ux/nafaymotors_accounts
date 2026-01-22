@@ -162,7 +162,7 @@ export default function Dashboard() {
                       {carrier.type === "trip" ? carrier.tripNumber : carrier.name}
                     </p>
                     <p className="text-xs text-gray-500">
-                      {carrier.carCount || 0} cars • R {((carrier.totalAmount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 }))}
+                      {carrier.carCount || 0} cars • R{((carrier.totalAmount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 }))}
                     </p>
                   </div>
                   <Link

@@ -37,7 +37,7 @@ export default async function CarriersPage({ searchParams }) {
           <div className="bg-white px-3 py-2 rounded-lg shadow-sm border border-gray-200">
             <p className="text-[10px] text-gray-500 mb-0.5">Total Amount</p>
             <p className="text-lg font-bold text-green-600">
-              ${totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+              R{totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
             </p>
           </div>
           <div className="bg-white px-3 py-2 rounded-lg shadow-sm border border-gray-200">
