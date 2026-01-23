@@ -65,6 +65,23 @@ export async function getAllCarriers(searchParams = {}) {
       }
     }
     
+    // Global search across multiple fields
+    if (searchParams.globalSearch) {
+      const globalSearchTerm = decodeURIComponent(searchParams.globalSearch).trim();
+      if (globalSearchTerm) {
+        const escapedSearch = globalSearchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const searchRegex = { $regex: escapedSearch, $options: "i" };
+        carrierMatchConditions.push({
+          $or: [
+            { carrierName: searchRegex },
+            { driverName: searchRegex },
+            { details: searchRegex },
+            { notes: searchRegex }
+          ]
+        });
+      }
+    }
+    
     // Date filter for carriers
     if (searchParams.startDate && searchParams.endDate) {
       const startDate = new Date(searchParams.startDate);
@@ -161,6 +178,9 @@ export async function getAllCarriers(searchParams = {}) {
                 type: 1,
                 date: 1,
                 totalExpense: 1,
+                carrierName: 1,
+                driverName: 1,
+                details: 1,
                 notes: 1,
                 isActive: 1,
                 createdAt: 1,

@@ -26,6 +26,7 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
     const carrierName = formData.get("carrierName");
     const isActive = formData.get("isActive");
     const userId = formData.get("userId");
+    const globalSearch = formData.get("globalSearch");
 
     if (startDate) newParams.set("startDate", startDate);
     if (endDate) newParams.set("endDate", endDate);
@@ -33,6 +34,7 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
     if (carrierName) newParams.set("carrierName", carrierName);
     if (isActive) newParams.set("isActive", isActive);
     if (userId && isSuperAdmin) newParams.set("userId", userId);
+    if (globalSearch) newParams.set("globalSearch", globalSearch);
 
     // Update URL and refresh data immediately
     const url = `/carrier-trips?${newParams.toString()}`;
@@ -69,7 +71,7 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
   };
 
   const hasActiveFilters =
-    params.get("startDate") || params.get("endDate") || params.get("company") || params.get("carrierName") || params.get("isActive") || params.get("userId");
+    params.get("startDate") || params.get("endDate") || params.get("company") || params.get("carrierName") || params.get("isActive") || params.get("userId") || params.get("globalSearch");
   
   const selectedCompany = params.get("company") || "";
   const selectedCarrierName = params.get("carrierName") || "";
@@ -77,6 +79,7 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
   const endDate = params.get("endDate") || "";
   const selectedIsActive = params.get("isActive") || "";
   const selectedUserId = params.get("userId") || "";
+  const globalSearchValue = params.get("globalSearch") || "";
   
   // Show invoice button only when company and both dates are selected
   const canGenerateInvoice = selectedCompany && startDate && endDate;
@@ -160,6 +163,20 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
               defaultValue={selectedCarrierName}
               placeholder="Search carrier..."
               className="w-32 px-1.5 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <label className="text-[10px] font-medium text-gray-600 whitespace-nowrap">
+              Search:
+            </label>
+            <input
+              type="text"
+              name="globalSearch"
+              key={`globalSearch-${globalSearchValue}`}
+              defaultValue={globalSearchValue}
+              placeholder="Search all fields..."
+              className="w-40 px-1.5 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
 

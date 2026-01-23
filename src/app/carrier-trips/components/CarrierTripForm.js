@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createCarrier, updateCarrierExpense } from "@/app/lib/carriers-actions/carriers";
 import { useUser } from "@/app/components/UserContext";
 import { X } from "lucide-react";
+import { formatDate } from "@/app/lib/utils/dateFormat";
 
 export default function CarrierTripForm({ carrier, users = [], onClose }) {
   const { user } = useUser();
@@ -12,6 +13,25 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const detailsRef = useRef(null);
+  const notesRef = useRef(null);
+
+  // Auto-resize textareas
+  const adjustTextareaHeight = (textarea) => {
+    if (textarea) {
+      textarea.style.height = "auto";
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  };
+
+  useEffect(() => {
+    if (detailsRef.current) {
+      adjustTextareaHeight(detailsRef.current);
+    }
+    if (notesRef.current) {
+      adjustTextareaHeight(notesRef.current);
+    }
+  }, [carrier]);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -52,9 +72,16 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-sm">
         <div className="flex justify-between items-center p-3 border-b">
-          <h2 className="text-base font-semibold">
-            {carrier ? "Edit Trip" : "Create New Trip"}
-          </h2>
+          <div>
+            <h2 className="text-base font-semibold">
+              {carrier ? "Edit Trip" : "Create New Trip"}
+            </h2>
+            {carrier && (
+              <div className="text-xs text-gray-600 mt-0.5">
+                {carrier.tripNumber || carrier.name || "N/A"} • {formatDate(carrier.date)}
+              </div>
+            )}
+          </div>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600"
@@ -203,12 +230,14 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
               Expense Details
             </label>
             <textarea
+              ref={detailsRef}
               name="details"
               rows="2"
-              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md resize-none"
+              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md resize-none overflow-hidden"
               placeholder="What was the expense for?"
               defaultValue={carrier?.details || ""}
               disabled={isSubmitting}
+              onInput={(e) => adjustTextareaHeight(e.target)}
             />
           </div>
 
@@ -217,12 +246,14 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
               Notes
             </label>
             <textarea
+              ref={notesRef}
               name="notes"
               rows="2"
-              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md resize-none"
+              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md resize-none overflow-hidden"
               placeholder="Additional notes..."
               defaultValue={carrier?.notes || ""}
               disabled={isSubmitting}
+              onInput={(e) => adjustTextareaHeight(e.target)}
             />
           </div>
 

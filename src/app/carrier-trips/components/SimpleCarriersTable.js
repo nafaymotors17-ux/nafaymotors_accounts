@@ -9,8 +9,8 @@ import CarForm from "./CarForm";
 import { deleteCar } from "@/app/lib/carriers-actions/cars";
 import { useRouter } from "next/navigation";
 import { formatDate } from "@/app/lib/utils/dateFormat";
-import * as XLSX from "xlsx";
 import { getAllCarriers } from "@/app/lib/carriers-actions/carriers";
+import { exportCarriersAndCars } from "@/app/lib/utils/exportCarriers";
 
 export default function SimpleCarriersTable({
   carriers,
@@ -138,70 +138,11 @@ export default function SimpleCarriersTable({
         return;
       }
 
-      // Prepare data for Excel
-      const excelData = allCarriers.map((carrier, index) => {
-        const profit = (carrier.totalAmount || 0) - (carrier.totalExpense || 0);
-        return {
-          "SR": index + 1,
-          "Trip Number": carrier.tripNumber || carrier.name || "N/A",
-          "Type": carrier.type === "company" ? "Company" : carrier.type === "trip" ? "Trip" : "N/A",
-          "Date": formatDate(carrier.date),
-          "Carrier Name": carrier.carrierName || "",
-          "Driver Name": carrier.driverName || "",
-          "Expense Details": carrier.details || "",
-          "Notes": carrier.notes || "",
-          "Status": carrier.isActive === false ? "Inactive" : "Active",
-          "Cars Count": carrier.carCount || 0,
-          "Total Amount": (carrier.totalAmount || 0).toFixed(2),
-          "Total Expense": (carrier.totalExpense || 0).toFixed(2),
-          "Profit": profit.toFixed(2),
-          "User": isSuperAdmin && carrier.user?.username ? carrier.user.username : "N/A",
-        };
-      });
-
-      // Create workbook and worksheet
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet(excelData);
-
-      // Set column widths
-      ws["!cols"] = [
-        { wch: 5 },   // SR
-        { wch: 15 },  // Trip Number
-        { wch: 10 },  // Type
-        { wch: 12 },  // Date
-        { wch: 15 },  // Carrier Name
-        { wch: 15 },  // Driver Name
-        { wch: 30 },  // Expense Details
-        { wch: 30 },  // Notes
-        { wch: 10 },  // Status
-        { wch: 10 },  // Cars Count
-        { wch: 15 },  // Total Amount
-        { wch: 15 },  // Total Expense
-        { wch: 15 },  // Profit
-        { wch: 15 },  // User
-      ];
-
-      // Add worksheet to workbook
-      XLSX.utils.book_append_sheet(wb, ws, "Carrier Trips");
-
-      // Generate filename with filter info
-      let filename = "Carrier_Trips";
-      if (currentParams.startDate && currentParams.endDate) {
-        filename += `_${currentParams.startDate}_to_${currentParams.endDate}`;
-      }
-      if (currentParams.company) {
-        filename += `_${currentParams.company.replace(/[^a-zA-Z0-9]/g, "_")}`;
-      }
-      if (currentParams.isActive) {
-        filename += `_${currentParams.isActive === "true" ? "Active" : "Inactive"}`;
-      }
-      filename += `_${new Date().toISOString().split("T")[0]}.xlsx`;
-
-      // Save file
-      XLSX.writeFile(wb, filename);
+      // Export using utility function
+      exportCarriersAndCars(allCarriers, currentParams, isSuperAdmin);
     } catch (error) {
       console.error("Error exporting to Excel:", error);
-      alert("Failed to export to Excel. Please try again.");
+      alert(error.message || "Failed to export to Excel. Please try again.");
     } finally {
       setIsExporting(false);
     }
@@ -300,11 +241,13 @@ export default function SimpleCarriersTable({
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px] w-6"></th>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">TRIP/COMPANY</th>
+                  <th className="px-2 py-1.5 text-center font-medium text-gray-600 text-[10px] w-8">#</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">TRIPS</th>
                   {isSuperAdmin && (
                     <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">USER</th>
                   )}
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">DATE</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">CARRIER</th>
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">DRIVER</th>
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">DETAILS</th>
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">NOTES</th>
@@ -316,13 +259,16 @@ export default function SimpleCarriersTable({
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {carriers.map((carrier) => {
+                {carriers.map((carrier, index) => {
                   const carrierIdStr = carrier._id.toString();
                   const isExpanded = expandedTrips.has(carrierIdStr);
                   // Use cars from carrier data if available (from filtered query), otherwise fetch
                   const cars = carrierCars[carrierIdStr] || carrier.cars || [];
                   const carsTotal = cars.reduce((sum, car) => sum + (car.amount || 0), 0);
                   const profit = (carrier.profit || 0);
+                  
+                  // Calculate row number based on pagination
+                  const rowNumber = pagination ? ((pagination.page - 1) * pagination.limit) + index + 1 : index + 1;
                   
                   // Debug: Log carrier data to check type field
                   if (!carrier.type && carrier.tripNumber) {
@@ -347,17 +293,14 @@ export default function SimpleCarriersTable({
                             <ChevronRight className="w-3 h-3" />
                           )}
                         </td>
-                        <td className="px-2 py-1.5 font-semibold text-gray-900">
+                        <td className="px-2 py-1.5 text-center text-gray-600 font-medium">
+                          {rowNumber}
+                        </td>
+                        <td className="px-1.5 py-1.5 font-semibold text-gray-900">
                           <div className="flex items-center gap-1">
                             {carrier.tripNumber || carrier.name || 'N/A'}
                             {carrier.type === 'company' && (
                               <span className="text-[8px] text-gray-500 bg-gray-100 px-1 py-0.5 rounded">CO</span>
-                            )}
-                            {(carrier.type === 'trip' || (!carrier.type && carrier.tripNumber)) && (
-                              <span className="text-[8px] text-gray-500 bg-gray-100 px-1 py-0.5 rounded">TR</span>
-                            )}
-                            {(carrier.isActive === false) && (
-                              <span className="text-[8px] text-red-600 bg-red-100 px-1 py-0.5 rounded">INACTIVE</span>
                             )}
                           </div>
                         </td>
@@ -374,6 +317,9 @@ export default function SimpleCarriersTable({
                         )}
                         <td className="px-2 py-1.5 text-gray-600 whitespace-nowrap">
                           {formatDate(carrier.date)}
+                        </td>
+                        <td className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[100px] truncate" title={carrier.carrierName || ""}>
+                          {carrier.carrierName || "-"}
                         </td>
                         <td className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[100px] truncate" title={carrier.driverName || ""}>
                           {carrier.driverName || "-"}
@@ -444,7 +390,7 @@ export default function SimpleCarriersTable({
                       {/* Expanded Cars Table */}
                       {isExpanded && (
                         <tr>
-                          <td colSpan={isSuperAdmin ? 12 : 11} className="px-0 py-0 bg-gray-50">
+                          <td colSpan={isSuperAdmin ? 14 : 13} className="px-0 py-0 bg-gray-50">
                             <div className="px-2 py-2">
                               <div className="flex justify-between items-center mb-2">
                                 <h4 className="text-xs font-semibold text-gray-700">
