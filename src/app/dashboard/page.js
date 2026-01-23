@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getDashboardData } from "../lib/dashboard-actions/dashboard";
@@ -10,9 +10,16 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const fetchingRef = useRef(false);
 
   useEffect(() => {
+    // Prevent duplicate calls (especially in React Strict Mode)
+    if (fetchingRef.current) return;
+    
     async function fetchDashboardData() {
+      if (fetchingRef.current) return;
+      fetchingRef.current = true;
+      
       try {
         setLoading(true);
         setError(null);
@@ -33,11 +40,13 @@ export default function Dashboard() {
         setError("Failed to load dashboard data");
       } finally {
         setLoading(false);
+        fetchingRef.current = false;
       }
     }
 
     fetchDashboardData();
-  }, [router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty dependency array - only run once on mount
 
   if (loading) {
     return (
@@ -109,13 +118,7 @@ export default function Dashboard() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-800">Dashboard</h1>
-        <p className="text-gray-600 mt-2">
-          {session.role === "super_admin" 
-            ? "Super Admin - All Data" 
-            : `Your Dashboard`}
-        </p>
+      <div className="mb-6"> 
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">

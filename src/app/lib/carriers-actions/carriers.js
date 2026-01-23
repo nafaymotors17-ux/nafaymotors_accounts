@@ -278,6 +278,57 @@ export async function getCarrierById(carrierId) {
   }
 }
 
+// Generate next unique trip number for a user
+export async function generateNextTripNumber(userId = null) {
+  await connectDB();
+  try {
+    const session = await getSession();
+    if (!session) {
+      return { error: "Unauthorized" };
+    }
+
+    // Determine target user
+    let targetUserId = userId || session.userId;
+    if (mongoose.Types.ObjectId.isValid(targetUserId)) {
+      targetUserId = new mongoose.Types.ObjectId(targetUserId);
+    }
+
+    // Find all trip numbers for this user and extract the highest numeric value
+    const trips = await Carrier.find({
+      type: "trip",
+      userId: targetUserId,
+      tripNumber: { $exists: true, $ne: null },
+    })
+      .select("tripNumber")
+      .lean();
+
+    let maxNumber = 0;
+    trips.forEach((trip) => {
+      if (trip.tripNumber) {
+        // Extract number from trip number (e.g., "TRIP-001" -> 1, "TRIP-123" -> 123)
+        const match = trip.tripNumber.match(/(\d+)$/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > maxNumber) {
+            maxNumber = num;
+          }
+        }
+      }
+    });
+
+    // Generate next number
+    const nextNumber = maxNumber + 1;
+
+    // Format as TRIP-XXX with zero padding
+    const tripNumber = `TRIP-${String(nextNumber).padStart(3, "0")}`;
+
+    return { success: true, tripNumber };
+  } catch (error) {
+    console.error("Error generating trip number:", error);
+    return { error: "Failed to generate trip number" };
+  }
+}
+
 export async function createCarrier(formData) {
   await connectDB();
   try {
@@ -286,7 +337,7 @@ export async function createCarrier(formData) {
       return { error: "Unauthorized" };
     }
 
-    const tripNumber = formData.get("tripNumber")?.trim();
+    let tripNumber = formData.get("tripNumber")?.trim();
     const name = formData.get("name")?.trim();
     const type = formData.get("type") || "trip";
     const date = formData.get("date");
@@ -307,36 +358,47 @@ export async function createCarrier(formData) {
       targetUserId = new mongoose.Types.ObjectId(targetUserId);
     }
 
+    // Auto-generate trip number if not provided
+    if (type === "trip" && !tripNumber) {
+      const generated = await generateNextTripNumber(targetUserId);
+      if (generated.error) {
+        return { error: generated.error };
+      }
+      tripNumber = generated.tripNumber;
+    }
+
     if (type === "trip" && !tripNumber) {
       return { error: "Trip number is required for trip-type carriers" };
     }
 
 
-    // Check if already exists (for the target user) - show warning but allow duplicate
-    let existingCarrier = null;
-    let warning = null;
-    if (type === "trip") {
-      existingCarrier = await Carrier.findOne({ tripNumber, type: "trip", userId: targetUserId });
+    // Check if trip number already exists (for the target user) - enforce uniqueness
+    if (type === "trip" && tripNumber) {
+      const existingCarrier = await Carrier.findOne({ 
+        tripNumber: tripNumber.trim().toUpperCase(), 
+        type: "trip", 
+        userId: targetUserId 
+      });
       if (existingCarrier) {
-        warning = "Trip number already exists for this user";
-      }
-    } else {
-      const upperName = name.trim().toUpperCase();
-      existingCarrier = await Carrier.findOne({ name: upperName, type: "company", userId: targetUserId });
-      if (existingCarrier) {
-        warning = "Company name already exists for this user";
+        return { 
+          error: `Trip number "${tripNumber}" already exists for this user. Please use a different trip number.` 
+        };
       }
     }
 
-    // If exists, return it with warning (user can still proceed)
-    if (existingCarrier && warning) {
-      revalidatePath("/carrier-trips");
-      return {
-        success: true,
-        carrier: JSON.parse(JSON.stringify(existingCarrier)),
-        message: type === "trip" ? "Carrier trip already exists" : "Company already exists",
-        warning: warning,
-      };
+    // Check if company name already exists
+    if (type === "company" && name) {
+      const upperName = name.trim().toUpperCase();
+      const existingCarrier = await Carrier.findOne({ 
+        name: upperName, 
+        type: "company", 
+        userId: targetUserId 
+      });
+      if (existingCarrier) {
+        return { 
+          error: `Company name "${upperName}" already exists for this user. Please use a different name.` 
+        };
+      }
     }
 
     // Create new carrier
@@ -362,7 +424,6 @@ export async function createCarrier(formData) {
         success: true,
         carrier: JSON.parse(JSON.stringify(carrier)),
         message: type === "trip" ? "Carrier trip created successfully" : "Company created successfully",
-        warning: warning || undefined,
       };
     } catch (saveError) {
       // Handle duplicate key error (E11000) - database might still have unique index
@@ -493,6 +554,49 @@ export async function toggleCarrierActiveStatus(carrierId) {
     };
   } catch (error) {
     return { error: `Failed to update trip status: ${error.message}` };
+  }
+}
+
+export async function deleteCarrier(carrierId) {
+  await connectDB();
+  try {
+    const session = await getSession();
+    if (!session) {
+      return { error: "Unauthorized" };
+    }
+
+    // Only super admin can delete carriers
+    if (session.role !== "super_admin") {
+      return { error: "Only super admin can delete trips" };
+    }
+
+    // Convert carrierId to ObjectId if it's a string
+    let carrierIdObj = carrierId;
+    if (typeof carrierId === 'string' && mongoose.Types.ObjectId.isValid(carrierId)) {
+      carrierIdObj = new mongoose.Types.ObjectId(carrierId);
+    }
+
+    // Find the carrier first to verify it exists
+    const carrier = await Carrier.findById(carrierIdObj);
+    if (!carrier) {
+      return { error: "Carrier trip not found" };
+    }
+
+    // Delete all cars associated with this carrier
+    const deleteCarsResult = await Car.deleteMany({ carrier: carrierIdObj });
+    
+    // Delete the carrier
+    await Carrier.findByIdAndDelete(carrierIdObj);
+
+    revalidatePath("/carrier-trips");
+    return {
+      success: true,
+      message: `Trip and ${deleteCarsResult.deletedCount} associated car(s) deleted successfully`,
+      deletedCarsCount: deleteCarsResult.deletedCount,
+    };
+  } catch (error) {
+    console.error("Error deleting carrier:", error);
+    return { error: `Failed to delete trip: ${error.message}` };
   }
 }
 

@@ -146,7 +146,7 @@ export async function getAllCompanies() {
   }
 }
 
-export async function createCompany(name) {
+export async function createCompany(name, targetUserId = null) {
   await connectDB();
   try {
     const session = await getSession();
@@ -160,16 +160,16 @@ export async function createCompany(name) {
       return { error: "Company name is required" };
     }
     
-    // Convert userId to ObjectId if it's a valid string
-    let targetUserId = session.userId;
-    if (mongoose.Types.ObjectId.isValid(targetUserId)) {
-      targetUserId = new mongoose.Types.ObjectId(targetUserId);
+    // Use provided userId or default to session userId
+    let finalUserId = targetUserId || session.userId;
+    if (mongoose.Types.ObjectId.isValid(finalUserId)) {
+      finalUserId = new mongoose.Types.ObjectId(finalUserId);
     }
     
   
     const existingCompany = await Company.findOne({ 
       name: trimmedName, 
-      userId: targetUserId 
+      userId: finalUserId 
     });
     if (existingCompany) {
       return { error: "Company with this name already exists" };
@@ -177,7 +177,7 @@ export async function createCompany(name) {
     
 const company = await new Company({
   name: trimmedName,
-  userId: targetUserId,
+  userId: finalUserId,
 }).save();
 
     revalidatePath("/carrier-trips");

@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useCallback, useMemo } from "react";
 import { Search, Download, Eye, X, Trash2 } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
 import { getInvoiceById, deleteInvoice } from "@/app/lib/invoice-actions/invoices";
@@ -11,56 +10,33 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 
-export default function InvoicesTable({ invoices, pagination, companies = [] }) {
-  const router = useRouter();
-  const params = useSearchParams();
+export default function InvoicesTable({ 
+  invoices, 
+  pagination, 
+  companies = [],
+  loading = false,
+  searchQuery = "",
+  selectedCompany = "",
+  onSearchChange,
+  onCompanyChange,
+  onPageChange,
+  onLimitChange,
+  currentLimit = 10,
+}) {
   const { user } = useUser();
   const isSuperAdmin = user?.role === "super_admin";
-  const [searchQuery, setSearchQuery] = useState(params.get("search") || "");
-  const [selectedCompany, setSelectedCompany] = useState(params.get("company") || "");
   const [viewingInvoice, setViewingInvoice] = useState(null);
   const [invoiceCars, setInvoiceCars] = useState([]);
   const [loadingCars, setLoadingCars] = useState(false);
   const [generatingPDF, setGeneratingPDF] = useState(false);
   const [deletingInvoiceId, setDeletingInvoiceId] = useState(null);
-  const searchTimeoutRef = useRef(null);
 
-  // Auto-search with debouncing for invoice number search
-  useEffect(() => {
-    // Clear existing timeout
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
+  const handleClearFilters = useCallback(() => {
+    onSearchChange("");
+    onCompanyChange("");
+  }, [onSearchChange, onCompanyChange]);
 
-    // Set new timeout for auto-search
-    searchTimeoutRef.current = setTimeout(() => {
-      const newParams = new URLSearchParams();
-      if (searchQuery.trim()) {
-        newParams.set("search", searchQuery.trim());
-      }
-      if (selectedCompany) {
-        newParams.set("company", selectedCompany);
-      }
-      // Reset to page 1 when searching
-      newParams.set("page", "1");
-      router.push(`/invoices?${newParams.toString()}`);
-    }, 500); // 500ms debounce
-
-    // Cleanup
-    return () => {
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-      }
-    };
-  }, [searchQuery, selectedCompany, router]);
-
-  const handleClearFilters = () => {
-    setSearchQuery("");
-    setSelectedCompany("");
-    router.push("/invoices");
-  };
-
-  const handleDeleteInvoice = async (invoiceId, invoiceNumber) => {
+  const handleDeleteInvoice = useCallback(async (invoiceId, invoiceNumber) => {
     if (!isSuperAdmin) {
       return;
     }
@@ -77,7 +53,9 @@ export default function InvoicesTable({ invoices, pagination, companies = [] }) 
     try {
       const result = await deleteInvoice(invoiceId);
       if (result.success) {
-        router.refresh();
+        // Optimistic update - remove from list immediately
+        // The parent will refetch on next render
+        window.location.reload();
       } else {
         alert(result.error || "Failed to delete invoice");
       }
@@ -86,7 +64,7 @@ export default function InvoicesTable({ invoices, pagination, companies = [] }) 
     } finally {
       setDeletingInvoiceId(null);
     }
-  };
+  }, [isSuperAdmin]);
 
   const handleViewInvoice = async (invoice) => {
     setViewingInvoice(invoice);
@@ -290,14 +268,14 @@ export default function InvoicesTable({ invoices, pagination, companies = [] }) 
               <input
                 type="text"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => onSearchChange(e.target.value)}
                 placeholder="Search by invoice number..."
                 className="w-full pl-8 pr-8 py-1.5 text-xs border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
               />
               {searchQuery && (
                 <button
                   type="button"
-                  onClick={() => setSearchQuery("")}
+                  onClick={() => onSearchChange("")}
                   className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -307,7 +285,7 @@ export default function InvoicesTable({ invoices, pagination, companies = [] }) 
             <div className="w-48">
               <select
                 value={selectedCompany}
-                onChange={(e) => setSelectedCompany(e.target.value)}
+                onChange={(e) => onCompanyChange(e.target.value)}
                 className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
               >
                 <option value="">All Companies</option>
@@ -332,7 +310,11 @@ export default function InvoicesTable({ invoices, pagination, companies = [] }) 
         </div>
 
         {/* Invoices Table */}
-        {invoices.length === 0 ? (
+        {loading && !pagination ? (
+          <div className="p-8 text-center text-gray-500">
+            <p>Loading invoices...</p>
+          </div>
+        ) : !loading && invoices.length === 0 && pagination ? (
           <div className="p-8 text-center text-gray-500">
             <p>No invoices found</p>
           </div>
@@ -413,18 +395,28 @@ export default function InvoicesTable({ invoices, pagination, companies = [] }) 
         {/* Pagination */}
         {pagination && pagination.total > 0 && (
           <div className="p-4 border-t bg-gray-50 flex flex-col sm:flex-row justify-between items-center gap-3">
-            <div className="text-sm text-gray-600">
-              Showing {((pagination.page - 1) * pagination.limit) + 1} to{" "}
-              {Math.min(pagination.page * pagination.limit, pagination.total)} of{" "}
-              {pagination.total} invoices
+            <div className="flex items-center gap-3">
+              <div className="text-sm text-gray-600">
+                Showing {((pagination.page - 1) * pagination.limit) + 1} to{" "}
+                {Math.min(pagination.page * pagination.limit, pagination.total)} of{" "}
+                {pagination.total} invoices
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-600">Show:</label>
+                <select
+                  value={currentLimit}
+                  onChange={(e) => onLimitChange(Number(e.target.value))}
+                  className="px-2 py-1 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                </select>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => {
-                  const newParams = new URLSearchParams(params.toString());
-                  newParams.set("page", (pagination.page - 1).toString());
-                  router.push(`/invoices?${newParams.toString()}`);
-                }}
+                onClick={() => onPageChange(pagination.page - 1)}
                 disabled={!pagination.hasPrevPage}
                 className="px-3 py-1 border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
               >
@@ -434,11 +426,7 @@ export default function InvoicesTable({ invoices, pagination, companies = [] }) 
                 {pagination.page} / {pagination.totalPages}
               </span>
               <button
-                onClick={() => {
-                  const newParams = new URLSearchParams(params.toString());
-                  newParams.set("page", (pagination.page + 1).toString());
-                  router.push(`/invoices?${newParams.toString()}`);
-                }}
+                onClick={() => onPageChange(pagination.page + 1)}
                 disabled={!pagination.hasNextPage}
                 className="px-3 py-1 border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
               >

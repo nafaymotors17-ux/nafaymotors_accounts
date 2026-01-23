@@ -2,9 +2,9 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { createCarrier, updateCarrierExpense } from "@/app/lib/carriers-actions/carriers";
+import { createCarrier, updateCarrierExpense, generateNextTripNumber } from "@/app/lib/carriers-actions/carriers";
 import { useUser } from "@/app/components/UserContext";
-import { X } from "lucide-react";
+import { X, RefreshCw } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
 
 export default function CarrierTripForm({ carrier, users = [], onClose }) {
@@ -13,6 +13,8 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const [tripNumber, setTripNumber] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
   const detailsRef = useRef(null);
   const notesRef = useRef(null);
 
@@ -21,6 +23,28 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
     if (textarea) {
       textarea.style.height = "auto";
       textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  };
+
+  // Auto-generate trip number on mount if creating new trip
+  useEffect(() => {
+    if (!carrier) {
+      loadGeneratedTripNumber();
+    }
+  }, [carrier, selectedUserId]);
+
+  // Load generated trip number
+  const loadGeneratedTripNumber = async () => {
+    setIsGenerating(true);
+    try {
+      const result = await generateNextTripNumber(selectedUserId || null);
+      if (result.success) {
+        setTripNumber(result.tripNumber);
+      }
+    } catch (err) {
+      console.error("Error generating trip number:", err);
+    } finally {
+      setIsGenerating(false);
     }
   };
 

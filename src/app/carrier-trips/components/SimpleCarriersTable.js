@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef, useEffect } from "react";
 import React from "react";
 import { useSearchParams } from "next/navigation";
 import { Plus, ChevronDown, ChevronRight, Edit, Trash2, FileSpreadsheet } from "lucide-react";
@@ -9,19 +9,55 @@ import CarForm from "./CarForm";
 import { deleteCar } from "@/app/lib/carriers-actions/cars";
 import { useRouter } from "next/navigation";
 import { formatDate } from "@/app/lib/utils/dateFormat";
-import { getAllCarriers } from "@/app/lib/carriers-actions/carriers";
+import { getAllCarriers, deleteCarrier } from "@/app/lib/carriers-actions/carriers";
 import { exportCarriersAndCars } from "@/app/lib/utils/exportCarriers";
 
+// Component to show truncated text with ellipsis indicator
+function TruncatedText({ text, maxLines = 2, className = "" }) {
+  if (!text) {
+    return <span className="text-gray-400">-</span>;
+  }
+
+  return (
+    <div
+      className={`whitespace-normal ${className}`}
+      title={text}
+      style={{
+        display: '-webkit-box',
+        WebkitLineClamp: maxLines,
+        WebkitBoxOrient: 'vertical',
+        overflow: 'hidden',
+        wordBreak: 'break-word',
+        lineHeight: '1.2em',
+        textOverflow: 'ellipsis'
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
 export default function SimpleCarriersTable({
-  carriers,
+  carriers: initialCarriers,
   companies,
   users = [],
-  pagination,
+  pagination: initialPagination,
   isSuperAdmin = false,
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
+  
+  // Optimistic state - keep local copy of carriers for instant updates
+  const [carriers, setCarriers] = useState(initialCarriers);
+  const [pagination, setPagination] = useState(initialPagination);
+  
+  // Sync with server props when they change
+  React.useEffect(() => {
+    setCarriers(initialCarriers);
+    setPagination(initialPagination);
+  }, [initialCarriers, initialPagination]);
+  
   const [expandedTrips, setExpandedTrips] = useState(new Set());
   const [showTripForm, setShowTripForm] = useState(false);
   const [editingCarrier, setEditingCarrier] = useState(null);
@@ -29,6 +65,7 @@ export default function SimpleCarriersTable({
   const [showCarForm, setShowCarForm] = useState({});
   const [carFormCarrier, setCarFormCarrier] = useState(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [togglingCarriers, setTogglingCarriers] = useState(new Set());
 
   const toggleTrip = async (carrierId) => {
     const carrierIdStr = carrierId.toString();
@@ -82,35 +119,93 @@ export default function SimpleCarriersTable({
     }
   };
 
+  const handleDeleteCarrier = async (carrierId, tripNumber) => {
+    const carrierIdStr = carrierId.toString();
+    const tripDisplay = tripNumber || carrierIdStr;
+    
+    const confirmed = window.confirm(
+      `Are you sure you want to delete trip "${tripDisplay}"?\n\nThis will permanently delete:\n- The trip/carrier\n- All cars associated with this trip\n\nThis action cannot be undone!`
+    );
+    
+    if (!confirmed) return;
+
+    try {
+      const result = await deleteCarrier(carrierIdStr);
+      if (result.success) {
+        // Remove from local state immediately
+        setCarriers(prevCarriers => 
+          prevCarriers.filter(carrier => carrier._id.toString() !== carrierIdStr)
+        );
+        // Refresh to update pagination and totals
+        router.refresh();
+        alert(`Trip deleted successfully. ${result.deletedCarsCount} car(s) were also deleted.`);
+      } else {
+        alert(result.error || "Failed to delete trip");
+      }
+    } catch (error) {
+      console.error("Error deleting carrier:", error);
+      alert("An error occurred while deleting the trip");
+    }
+  };
+
   const handleToggleActive = async (e, carrierId, currentStatus) => {
     e.preventDefault();
     e.stopPropagation();
     
-    console.log("Toggle active clicked", { carrierId, currentStatus, carrierIdType: typeof carrierId });
+    // Convert carrierId to string if it's an ObjectId
+    const carrierIdStr = carrierId?.toString ? carrierId.toString() : String(carrierId);
     
-    // Use API route instead of server action for more reliable execution
+    // Optimistic update - update UI immediately
+    const previousCarriers = [...carriers];
+    const newStatus = currentStatus === false ? true : false;
+    
+    setCarriers(prevCarriers => 
+      prevCarriers.map(carrier => 
+        carrier._id.toString() === carrierIdStr 
+          ? { ...carrier, isActive: newStatus }
+          : carrier
+      )
+    );
+    setTogglingCarriers(prev => new Set(prev).add(carrierIdStr));
+    
+    // Make API call in background
     startTransition(async () => {
       try {
-        console.log("Calling API to toggle active status:", carrierId);
-        const response = await fetch(`/api/carrier-trips/${carrierId}/toggle-active`, {
+        const response = await fetch(`/api/carriers/${carrierIdStr}/toggle-active`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
         });
 
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ error: 'Network error' }));
+          throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        }
+
         const result = await response.json();
-        console.log("Toggle result:", result);
         
         if (result.success) {
+          // Success - sync with server in background (non-blocking)
+          // Only refresh if we need to update totals or other calculated fields
           router.refresh();
         } else {
+          // Revert on error
+          setCarriers(previousCarriers);
           console.error("Toggle failed:", result.error);
           alert(result.error || "Failed to update trip status");
         }
       } catch (error) {
+        // Revert on error
+        setCarriers(previousCarriers);
         console.error("Error toggling active status:", error);
         alert("An error occurred while updating trip status: " + error.message);
+      } finally {
+        setTogglingCarriers(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(carrierIdStr);
+          return newSet;
+        });
       }
     });
   };
@@ -249,8 +344,8 @@ export default function SimpleCarriersTable({
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">DATE</th>
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">CARRIER</th>
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">DRIVER</th>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">DETAILS</th>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">NOTES</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px] min-w-[200px]">DETAILS</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px] min-w-[200px]">NOTES</th>
                   <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">CARS</th>
                   <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">TOTAL</th>
                   <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">EXPENSE</th>
@@ -265,7 +360,12 @@ export default function SimpleCarriersTable({
                   // Use cars from carrier data if available (from filtered query), otherwise fetch
                   const cars = carrierCars[carrierIdStr] || carrier.cars || [];
                   const carsTotal = cars.reduce((sum, car) => sum + (car.amount || 0), 0);
-                  const profit = (carrier.profit || 0);
+                  
+                  // Calculate profit: totalAmount - totalExpense
+                  // Use carrier.totalAmount if available (from server calculation), otherwise use carsTotal
+                  const totalAmount = carrier.totalAmount || carsTotal;
+                  const totalExpense = carrier.totalExpense || 0;
+                  const profit = totalAmount - totalExpense;
                   
                   // Calculate row number based on pagination
                   const rowNumber = pagination ? ((pagination.page - 1) * pagination.limit) + index + 1 : index + 1;
@@ -324,11 +424,11 @@ export default function SimpleCarriersTable({
                         <td className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[100px] truncate" title={carrier.driverName || ""}>
                           {carrier.driverName || "-"}
                         </td>
-                        <td className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[150px] truncate" title={carrier.details || ""}>
-                          {carrier.details || "-"}
+                        <td className="px-2 py-2 text-gray-700 text-[10px] min-w-[200px] max-w-[250px]">
+                          <TruncatedText text={carrier.details} maxLines={2} />
                         </td>
-                        <td className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[150px] truncate" title={carrier.notes || ""}>
-                          {carrier.notes || "-"}
+                        <td className="px-2 py-2 text-gray-700 text-[10px] min-w-[200px] max-w-[250px]">
+                          <TruncatedText text={carrier.notes} maxLines={2} />
                         </td>
                         <td className="px-2 py-1.5 text-right text-gray-700">
                           {carrier.carCount || 0}
@@ -365,22 +465,33 @@ export default function SimpleCarriersTable({
                             >
                               <Edit className="w-3.5 h-3.5" />
                             </button>
+                            {isSuperAdmin && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteCarrier(carrier._id, carrier.tripNumber || carrier.name);
+                                }}
+                                className="text-red-600 hover:text-red-800"
+                                title="Delete Trip (Super Admin Only)"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                             {(carrier.type === 'trip' || (!carrier.type && carrier.tripNumber)) && (
                               <button
                                 type="button"
                                 onClick={(e) => {
-                                  console.log("Button clicked", { carrierId: carrier._id, isActive: carrier.isActive, type: carrier.type });
                                   handleToggleActive(e, carrier._id, carrier.isActive);
                                 }}
-                                disabled={isPending}
+                                disabled={togglingCarriers.has(carrier._id.toString())}
                                 className={`px-1.5 py-0.5 text-[9px] font-medium rounded border transition-colors ${
                                   (carrier.isActive === false) 
                                     ? 'bg-red-100 text-red-700 border-red-300 hover:bg-red-200' 
                                     : 'bg-green-100 text-green-700 border-green-300 hover:bg-green-200'
-                                } ${isPending ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                } ${togglingCarriers.has(carrier._id.toString()) ? 'opacity-50 cursor-not-allowed' : ''}`}
                                 title={`Click to mark as ${(carrier.isActive === false) ? 'Active' : 'Inactive'}`}
                               >
-                                {isPending ? '...' : ((carrier.isActive === false) ? 'Inactive' : 'Active')}
+                                {togglingCarriers.has(carrier._id.toString()) ? '...' : ((carrier.isActive === false) ? 'Inactive' : 'Active')}
                               </button>
                             )}
                           </div>
