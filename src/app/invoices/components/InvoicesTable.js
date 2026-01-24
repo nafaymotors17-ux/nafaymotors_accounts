@@ -1,98 +1,184 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { Search, Download, Eye, X, Trash2 } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Eye, Download, Trash2 } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
-import { getInvoiceById, deleteInvoice } from "@/app/lib/invoice-actions/invoices";
+import { deleteInvoice, recordPayment, deletePayment } from "@/app/lib/invoice-actions/invoices";
 import { getCarsByCompany } from "@/app/lib/carriers-actions/cars";
 import { useUser } from "@/app/components/UserContext";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import * as XLSX from "xlsx";
+import InvoiceFilters from "./InvoiceFilters";
+import InvoiceViewModal from "./InvoiceViewModal";
+import PaymentFormModal from "./PaymentFormModal";
 
-export default function InvoicesTable({ 
-  invoices, 
-  pagination, 
+export default function InvoicesTable({
+  invoices,
+  pagination,
   companies = [],
   loading = false,
   searchQuery = "",
   selectedCompany = "",
+  paymentStatus = "",
   onSearchChange,
   onCompanyChange,
+  onPaymentStatusChange,
   onPageChange,
   onLimitChange,
   currentLimit = 10,
 }) {
   const { user } = useUser();
-  const isSuperAdmin = user?.role === "super_admin";
-  const [viewingInvoice, setViewingInvoice] = useState(null);
-  const [invoiceCars, setInvoiceCars] = useState([]);
-  const [loadingCars, setLoadingCars] = useState(false);
-  const [generatingPDF, setGeneratingPDF] = useState(false);
-  const [deletingInvoiceId, setDeletingInvoiceId] = useState(null);
+  const queryClient = useQueryClient();
 
+  // Derived value with useMemo
+  const isSuperAdmin = useMemo(() => user?.role === "super_admin", [user?.role]);
+
+  // UI state only
+  const [viewingInvoice, setViewingInvoice] = useState(null);
+  const [generatingPDF, setGeneratingPDF] = useState(false);
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [paymentFormData, setPaymentFormData] = useState({
+    amount: "",
+    paymentDate: new Date().toISOString().split("T")[0],
+    paymentMethod: "Cash",
+    notes: "",
+  });
+
+  // Server data with React Query - fetch cars when viewing invoice
+  const {
+    data: invoiceCarsData,
+    isLoading: loadingCars,
+  } = useQuery({
+    queryKey: ["invoiceCars", viewingInvoice?._id],
+    queryFn: () => {
+      if (!viewingInvoice) return null;
+      return getCarsByCompany({
+        companyName: viewingInvoice.clientCompanyName,
+        startDate: viewingInvoice.startDate,
+        endDate: viewingInvoice.endDate,
+        isActive: viewingInvoice.isActive,
+      });
+    },
+    enabled: !!viewingInvoice,
+  });
+
+  // Derived value - filtered cars for the invoice
+  const invoiceCars = useMemo(() => {
+    if (!invoiceCarsData?.success || !viewingInvoice) return [];
+    const invoiceCarIds = viewingInvoice.carIds.map((id) => id.toString());
+    return (invoiceCarsData.cars || []).filter((car) =>
+      invoiceCarIds.includes(car._id.toString())
+    );
+  }, [invoiceCarsData, viewingInvoice]);
+
+  // Mutations
+  const deleteInvoiceMutation = useMutation({
+    mutationFn: deleteInvoice,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      setViewingInvoice(null);
+    },
+  });
+
+  const recordPaymentMutation = useMutation({
+    mutationFn: ({ invoiceId, paymentData }) => recordPayment(invoiceId, paymentData),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      if (data.invoice) {
+        setViewingInvoice(data.invoice);
+      }
+      setShowPaymentForm(false);
+      setPaymentFormData({
+        amount: "",
+        paymentDate: new Date().toISOString().split("T")[0],
+        paymentMethod: "Cash",
+        notes: "",
+      });
+    },
+  });
+
+  const deletePaymentMutation = useMutation({
+    mutationFn: ({ invoiceId, paymentId }) => deletePayment(invoiceId, paymentId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      if (data.invoice) {
+        setViewingInvoice(data.invoice);
+      }
+    },
+  });
+
+  // Helper functions
+  const getPaymentInfo = useCallback((invoice) => {
+    const payments = invoice.payments || [];
+    const totalPaid = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const totalAmount = invoice.totalAmount || 0;
+    const remainingBalance = totalAmount - totalPaid;
+    const paymentStatus = invoice.paymentStatus || "unpaid";
+
+    return {
+      totalPaid,
+      remainingBalance,
+      paymentStatus,
+      payments,
+      isPaid: totalPaid >= totalAmount,
+      isPartial: totalPaid > 0 && totalPaid < totalAmount,
+    };
+  }, []);
+
+  const getPaymentStatusBadge = useCallback((status, remainingBalance) => {
+    const baseClasses = "px-2 py-1 text-xs font-medium rounded";
+    if (status === "paid") {
+      return <span className={`${baseClasses} bg-green-100 text-green-800`}>Paid</span>;
+    } else if (status === "partial") {
+      return <span className={`${baseClasses} bg-yellow-100 text-yellow-800`}>Partial</span>;
+    } else if (status === "overdue") {
+      return <span className={`${baseClasses} bg-red-100 text-red-800`}>Overdue</span>;
+    } else {
+      return <span className={`${baseClasses} bg-gray-100 text-gray-800`}>Unpaid</span>;
+    }
+  }, []);
+
+  const getDaysOverdue = useCallback((invoice) => {
+    if (!invoice.dueDate) return null;
+    const dueDate = new Date(invoice.dueDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    dueDate.setHours(0, 0, 0, 0);
+    const diffTime = today - dueDate;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  }, []);
+
+  // Event handlers
   const handleClearFilters = useCallback(() => {
     onSearchChange("");
     onCompanyChange("");
-  }, [onSearchChange, onCompanyChange]);
+    onPaymentStatusChange("");
+  }, [onSearchChange, onCompanyChange, onPaymentStatusChange]);
 
-  const handleDeleteInvoice = useCallback(async (invoiceId, invoiceNumber) => {
-    if (!isSuperAdmin) {
-      return;
-    }
+  const handleDeleteInvoice = useCallback(
+    async (invoiceId, invoiceNumber) => {
+      if (!isSuperAdmin) return;
+      const confirmed = window.confirm(
+        `Are you sure you want to delete invoice ${invoiceNumber}? This action cannot be undone.`
+      );
+      if (!confirmed) return;
+      deleteInvoiceMutation.mutate(invoiceId);
+    },
+    [isSuperAdmin, deleteInvoiceMutation]
+  );
 
-    const confirmed = window.confirm(
-      `Are you sure you want to delete invoice ${invoiceNumber}? This action cannot be undone.`
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    setDeletingInvoiceId(invoiceId);
-    try {
-      const result = await deleteInvoice(invoiceId);
-      if (result.success) {
-        // Optimistic update - remove from list immediately
-        // The parent will refetch on next render
-        window.location.reload();
-      } else {
-        alert(result.error || "Failed to delete invoice");
-      }
-    } catch (error) {
-      alert("An error occurred while deleting the invoice");
-    } finally {
-      setDeletingInvoiceId(null);
-    }
-  }, [isSuperAdmin]);
-
-  const handleViewInvoice = async (invoice) => {
+  const handleViewInvoice = useCallback((invoice) => {
     setViewingInvoice(invoice);
-    setLoadingCars(true);
-    try {
-      // Fetch cars for this invoice
-      const result = await getCarsByCompany({
-        companyName: invoice.clientCompanyName,
-        startDate: invoice.startDate,
-        endDate: invoice.endDate,
-        isActive: invoice.isActive,
-      });
-      if (result.success) {
-        // Filter to only include cars that are in the invoice
-        const invoiceCarIds = invoice.carIds.map(id => id.toString());
-        const filteredCars = (result.cars || []).filter(car => 
-          invoiceCarIds.includes(car._id.toString())
-        );
-        setInvoiceCars(filteredCars);
-      }
-    } catch (error) {
-      console.error("Error fetching invoice cars:", error);
-    } finally {
-      setLoadingCars(false);
-    }
-  };
+  }, []);
 
-  const generatePDFFromInvoice = async (invoice, cars) => {
+  const handleCloseModal = useCallback(() => {
+    setViewingInvoice(null);
+  }, []);
+
+  const generatePDFFromInvoice = useCallback(async (invoice, cars) => {
+    if (!cars || cars.length === 0) return;
     setGeneratingPDF(true);
     try {
       const doc = new jsPDF();
@@ -104,7 +190,11 @@ export default function InvoicesTable({
       doc.setFont("helvetica", "bold");
       doc.setFontSize(16);
       doc.setTextColor(31, 41, 55);
-      doc.text(invoice.senderCompanyName.toUpperCase() || "COMPANY NAME", margin, currentY);
+      doc.text(
+        invoice.senderCompanyName.toUpperCase() || "COMPANY NAME",
+        margin,
+        currentY
+      );
       currentY += 6;
 
       if (invoice.senderAddress) {
@@ -126,7 +216,12 @@ export default function InvoicesTable({
       // Client Name
       doc.setFont("helvetica", "bold");
       doc.setFontSize(12);
-      doc.text(invoice.clientCompanyName.toUpperCase(), pageWidth / 2, currentY, { align: "center" });
+      doc.text(
+        invoice.clientCompanyName.toUpperCase(),
+        pageWidth / 2,
+        currentY,
+        { align: "center" }
+      );
       currentY += 8;
 
       // Invoice Number and Date
@@ -137,7 +232,9 @@ export default function InvoicesTable({
       const invoiceDateText = `DATE: ${formatDate(invoice.invoiceDate).toUpperCase()}`;
       doc.text(invoiceNoText, pageWidth - margin, currentY, { align: "right" });
       currentY += 5;
-      doc.text(invoiceDateText, pageWidth - margin, currentY, { align: "right" });
+      doc.text(invoiceDateText, pageWidth - margin, currentY, {
+        align: "right",
+      });
       currentY += 10;
 
       // Table data
@@ -148,7 +245,9 @@ export default function InvoicesTable({
         car.companyName || invoice.clientCompanyName || "",
         car.name || "",
         car.chassis || "",
-        (car.amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 }),
+        (car.amount || 0).toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+        }),
       ]);
 
       // Add TOTAL row
@@ -159,7 +258,9 @@ export default function InvoicesTable({
           styles: { halign: "right", fontStyle: "bold" },
         },
         {
-          content: invoice.subtotal.toLocaleString("en-US", { minimumFractionDigits: 2 }),
+          content: invoice.subtotal.toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+          }),
           styles: { fontStyle: "bold" },
         },
       ]);
@@ -167,7 +268,17 @@ export default function InvoicesTable({
       // Generate table
       autoTable(doc, {
         startY: currentY,
-        head: [["SR", "DATE", "STOCK", "CLIENT NAME", "VEHICLE", "CHASSIS", "AMOUNT"]],
+        head: [
+          [
+            "SR",
+            "DATE",
+            "STOCK",
+            "CLIENT NAME",
+            "VEHICLE",
+            "CHASSIS",
+            "AMOUNT",
+          ],
+        ],
         body: tableRows,
         theme: "grid",
         headStyles: {
@@ -195,11 +306,13 @@ export default function InvoicesTable({
       let finalY = doc.lastAutoTable.finalY + 10;
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
-      
+
       if (invoice.vatPercentage > 0) {
         doc.text(`VAT (${invoice.vatPercentage}%):`, margin, finalY);
         doc.text(
-          `R${invoice.vatAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}`,
+          `R${invoice.vatAmount.toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+          })}`,
           pageWidth - margin,
           finalY,
           { align: "right" }
@@ -210,12 +323,14 @@ export default function InvoicesTable({
         doc.text(`R0`, pageWidth - margin, finalY, { align: "right" });
         finalY += 6;
       }
-      
+
       doc.setFont("helvetica", "bold");
       doc.setFontSize(12);
       doc.text("TOTAL:", margin, finalY);
       doc.text(
-        `R${invoice.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}`,
+        `R${invoice.totalAmount.toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+        })}`,
         pageWidth - margin,
         finalY,
         { align: "right" }
@@ -226,7 +341,12 @@ export default function InvoicesTable({
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
       doc.setTextColor(100);
-      doc.text("* THANK YOU FOR DOING BUSINESS WITH US...!!", pageWidth / 2, finalY, { align: "center" });
+      doc.text(
+        "* THANK YOU FOR DOING BUSINESS WITH US...!!",
+        pageWidth / 2,
+        finalY,
+        { align: "center" }
+      );
       finalY += 8;
 
       // Descriptions section
@@ -236,7 +356,7 @@ export default function InvoicesTable({
         doc.setTextColor(31, 41, 55);
         doc.text("DESCRIPTIONS:", margin, finalY);
         finalY += 6;
-        
+
         doc.setFont("helvetica", "normal");
         doc.setFontSize(9);
         invoice.descriptions.forEach((desc) => {
@@ -247,7 +367,11 @@ export default function InvoicesTable({
         });
       }
 
-      const fileName = `Invoice_${invoice.invoiceNumber}_${new Date(invoice.invoiceDate).toISOString().split("T")[0]}.pdf`;
+      const fileName = `Invoice_${invoice.invoiceNumber}_${new Date(
+        invoice.invoiceDate
+      )
+        .toISOString()
+        .split("T")[0]}.pdf`;
       doc.save(fileName);
     } catch (error) {
       console.error("Error generating PDF:", error);
@@ -255,59 +379,76 @@ export default function InvoicesTable({
     } finally {
       setGeneratingPDF(false);
     }
-  };
+  }, []);
+
+  const handleDownloadPDF = useCallback(() => {
+    if (viewingInvoice && invoiceCars.length > 0) {
+      generatePDFFromInvoice(viewingInvoice, invoiceCars);
+    }
+  }, [viewingInvoice, invoiceCars, generatePDFFromInvoice]);
+
+  const handleViewAndDownload = useCallback(
+    (invoice) => {
+      handleViewInvoice(invoice);
+      setTimeout(() => {
+        if (invoiceCars.length > 0) {
+          generatePDFFromInvoice(invoice, invoiceCars);
+        }
+      }, 500);
+    },
+    [handleViewInvoice, invoiceCars, generatePDFFromInvoice]
+  );
+
+  const handleRecordPayment = useCallback(() => {
+    setShowPaymentForm(true);
+  }, []);
+
+  const handleRecordPaymentSubmit = useCallback(
+    (paymentData) => {
+      if (!viewingInvoice) return;
+      recordPaymentMutation.mutate({
+        invoiceId: viewingInvoice._id,
+        paymentData,
+      });
+    },
+    [viewingInvoice, recordPaymentMutation]
+  );
+
+  const handleDeletePayment = useCallback(
+    (invoiceId, paymentId) => {
+      deletePaymentMutation.mutate({ invoiceId, paymentId });
+    },
+    [deletePaymentMutation]
+  );
+
+  // Derived values
+  const paginationInfo = useMemo(() => {
+    if (!pagination) return null;
+    return {
+      start: (pagination.page - 1) * pagination.limit + 1,
+      end: Math.min(pagination.page * pagination.limit, pagination.total),
+      total: pagination.total,
+    };
+  }, [pagination]);
+
+  const viewingInvoicePaymentInfo = useMemo(() => {
+    if (!viewingInvoice) return null;
+    return getPaymentInfo(viewingInvoice);
+  }, [viewingInvoice, getPaymentInfo]);
 
   return (
     <>
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-        {/* Compact Search Bar */}
-        <div className="p-2 border-b bg-gray-50">
-          <div className="flex items-center gap-2">
-            <div className="flex-1 relative">
-              <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400 w-3.5 h-3.5" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => onSearchChange(e.target.value)}
-                placeholder="Search by invoice number..."
-                className="w-full pl-8 pr-8 py-1.5 text-xs border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => onSearchChange("")}
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-            <div className="w-48">
-              <select
-                value={selectedCompany}
-                onChange={(e) => onCompanyChange(e.target.value)}
-                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
-              >
-                <option value="">All Companies</option>
-                {companies.map((company) => (
-                  <option key={company._id} value={company.name}>
-                    {company.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {(searchQuery || selectedCompany) && (
-              <button
-                type="button"
-                onClick={handleClearFilters}
-                className="px-2 py-1.5 text-xs border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 flex items-center gap-1"
-              >
-                <X className="w-3 h-3" />
-                Clear
-              </button>
-            )}
-          </div>
-        </div>
+        <InvoiceFilters
+          searchQuery={searchQuery}
+          selectedCompany={selectedCompany}
+          paymentStatus={paymentStatus}
+          companies={companies}
+          onSearchChange={onSearchChange}
+          onCompanyChange={onCompanyChange}
+          onPaymentStatusChange={onPaymentStatusChange}
+          onClearFilters={handleClearFilters}
+        />
 
         {/* Invoices Table */}
         {loading && !pagination ? (
@@ -323,83 +464,179 @@ export default function InvoicesTable({
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Invoice #</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client Company</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sender Company</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Invoice #
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Date
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Client Company
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Sender Company
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Trip(s)
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                    Total
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                    Paid
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                    Balance
+                  </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                    Status
+                  </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                    Days Overdue
+                  </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {invoices.map((invoice) => (
-                  <tr key={invoice._id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {invoice.invoiceNumber}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {formatDate(invoice.invoiceDate)}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
-                      {invoice.clientCompanyName}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
-                      {invoice.senderCompanyName}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold text-green-600">
-                      R {invoice.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <div className="flex justify-center gap-2">
-                        <button
-                          onClick={() => handleViewInvoice(invoice)}
-                          className="text-blue-600 hover:text-blue-800"
-                          title="View Invoice"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => {
-                            handleViewInvoice(invoice);
-                            setTimeout(() => {
-                              if (invoiceCars.length > 0) {
-                                generatePDFFromInvoice(invoice, invoiceCars);
-                              }
-                            }, 500);
-                          }}
-                          disabled={generatingPDF}
-                          className="text-green-600 hover:text-green-800 disabled:opacity-50"
-                          title="Download PDF"
-                        >
-                          <Download className="w-4 h-4" />
-                        </button>
-                        {isSuperAdmin && (
-                          <button
-                            onClick={() => handleDeleteInvoice(invoice._id, invoice.invoiceNumber)}
-                            disabled={deletingInvoiceId === invoice._id}
-                            className="text-red-600 hover:text-red-800 disabled:opacity-50"
-                            title="Delete Invoice"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                {invoices.map((invoice) => {
+                  const paymentInfo = getPaymentInfo(invoice);
+                  return (
+                    <tr key={invoice._id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {invoice.invoiceNumber}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        {formatDate(invoice.invoiceDate)}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-600">
+                        {invoice.clientCompanyName}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-600">
+                        {invoice.senderCompanyName}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-600">
+                        {invoice.tripNumbers && invoice.tripNumbers.length > 0 ? (
+                          <div className="space-y-1">
+                            {invoice.tripNumbers.map((tripNumber, idx) => (
+                              <div key={idx} className="text-xs">
+                                {tripNumber}
+                                {invoice.tripDates && invoice.tripDates[idx] && (
+                                  <span className="text-gray-500 ml-1">
+                                    ({formatDate(invoice.tripDates[idx])})
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 text-xs">-</span>
                         )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold text-green-600">
+                        R{" "}
+                        {invoice.totalAmount.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                        })}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-blue-600">
+                        R{" "}
+                        {paymentInfo.totalPaid.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                        })}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold">
+                        <span
+                          className={
+                            paymentInfo.remainingBalance > 0
+                              ? "text-red-600"
+                              : "text-green-600"
+                          }
+                        >
+                          R{" "}
+                          {paymentInfo.remainingBalance.toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                          })}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                        {getPaymentStatusBadge(
+                          paymentInfo.paymentStatus,
+                          paymentInfo.remainingBalance
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center text-xs">
+                        {(() => {
+                          const daysOverdue = getDaysOverdue(invoice);
+                          if (daysOverdue === null)
+                            return <span className="text-gray-400">-</span>;
+                          if (daysOverdue > 0 && paymentInfo.remainingBalance > 0) {
+                            return (
+                              <span className="text-red-600 font-semibold">
+                                {daysOverdue} days
+                              </span>
+                            );
+                          } else if (
+                            daysOverdue <= 0 &&
+                            paymentInfo.remainingBalance > 0
+                          ) {
+                            return (
+                              <span className="text-yellow-600">
+                                {Math.abs(daysOverdue)} days left
+                              </span>
+                            );
+                          } else {
+                            return <span className="text-gray-400">-</span>;
+                          }
+                        })()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                        <div className="flex justify-center gap-2">
+                          <button
+                            onClick={() => handleViewInvoice(invoice)}
+                            className="text-blue-600 hover:text-blue-800"
+                            title="View Invoice"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleViewAndDownload(invoice)}
+                            disabled={generatingPDF}
+                            className="text-green-600 hover:text-green-800 disabled:opacity-50"
+                            title="Download PDF"
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
+                          {isSuperAdmin && (
+                            <button
+                              onClick={() =>
+                                handleDeleteInvoice(invoice._id, invoice.invoiceNumber)
+                              }
+                              disabled={deleteInvoiceMutation.isPending}
+                              className="text-red-600 hover:text-red-800 disabled:opacity-50"
+                              title="Delete Invoice"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
 
         {/* Pagination */}
-        {pagination && pagination.total > 0 && (
+        {pagination && pagination.total > 0 && paginationInfo && (
           <div className="p-4 border-t bg-gray-50 flex flex-col sm:flex-row justify-between items-center gap-3">
             <div className="flex items-center gap-3">
               <div className="text-sm text-gray-600">
-                Showing {((pagination.page - 1) * pagination.limit) + 1} to{" "}
-                {Math.min(pagination.page * pagination.limit, pagination.total)} of{" "}
-                {pagination.total} invoices
+                Showing {paginationInfo.start} to {paginationInfo.end} of{" "}
+                {paginationInfo.total} invoices
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-sm text-gray-600">Show:</label>
@@ -438,137 +675,30 @@ export default function InvoicesTable({
       </div>
 
       {/* Invoice View Modal */}
-      {viewingInvoice && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white w-full max-w-4xl rounded-lg shadow-2xl max-h-[95vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b p-4 z-10">
-              <div className="flex justify-between items-center">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-800">Invoice {viewingInvoice.invoiceNumber}</h2>
-                  <p className="text-sm text-gray-600 mt-1">
-                    {formatDate(viewingInvoice.invoiceDate)} • {viewingInvoice.clientCompanyName}
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      if (invoiceCars.length > 0) {
-                        generatePDFFromInvoice(viewingInvoice, invoiceCars);
-                      }
-                    }}
-                    disabled={generatingPDF || loadingCars || invoiceCars.length === 0}
-                    className="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 flex items-center gap-2"
-                  >
-                    <Download className="w-4 h-4" />
-                    {generatingPDF ? "Generating..." : "PDF"}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setViewingInvoice(null);
-                      setInvoiceCars([]);
-                    }}
-                    className="text-gray-400 hover:text-gray-600"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-            </div>
+      {viewingInvoice && viewingInvoicePaymentInfo && (
+        <InvoiceViewModal
+          invoice={viewingInvoice}
+          invoiceCars={invoiceCars}
+          loadingCars={loadingCars}
+          generatingPDF={generatingPDF}
+          paymentInfo={viewingInvoicePaymentInfo}
+          getPaymentStatusBadge={getPaymentStatusBadge}
+          onClose={handleCloseModal}
+          onDownloadPDF={handleDownloadPDF}
+          onRecordPayment={handleRecordPayment}
+          onDeletePayment={handleDeletePayment}
+        />
+      )}
 
-            <div className="p-6">
-              {loadingCars ? (
-                <div className="text-center py-8 text-gray-500">Loading invoice details...</div>
-              ) : invoiceCars.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">No cars found for this invoice</div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <h3 className="text-sm font-semibold text-gray-700 mb-2">Sender</h3>
-                      <p className="text-sm text-gray-900">{viewingInvoice.senderCompanyName}</p>
-                      {viewingInvoice.senderAddress && (
-                        <p className="text-sm text-gray-600 mt-1">{viewingInvoice.senderAddress}</p>
-                      )}
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-semibold text-gray-700 mb-2">Client</h3>
-                      <p className="text-sm text-gray-900">{viewingInvoice.clientCompanyName}</p>
-                    </div>
-                  </div>
-
-                  <div className="border rounded-lg overflow-hidden">
-                    <div className="bg-gray-50 p-2 border-b">
-                      <h3 className="font-semibold text-gray-800 text-sm">Invoice Items ({invoiceCars.length} cars)</h3>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full divide-y divide-gray-200 text-sm">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">SR</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Date</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Stock</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Vehicle</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Chassis</th>
-                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Amount</th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                          {invoiceCars.map((car, index) => (
-                            <tr key={car._id}>
-                              <td className="px-3 py-2 text-gray-600">{index + 1}</td>
-                              <td className="px-3 py-2 text-gray-600">{formatDate(car.date)}</td>
-                              <td className="px-3 py-2 font-medium">{car.stockNo}</td>
-                              <td className="px-3 py-2">{car.name}</td>
-                              <td className="px-3 py-2 font-mono text-xs">{car.chassis}</td>
-                              <td className="px-3 py-2 text-right text-green-600 font-semibold">
-                                R {(car.amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot className="bg-gray-50">
-                          <tr>
-                            <td colSpan="5" className="px-3 py-2 text-right font-semibold">Subtotal:</td>
-                            <td className="px-3 py-2 text-right font-semibold text-green-600">
-                              R {viewingInvoice.subtotal.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                            </td>
-                          </tr>
-                          {viewingInvoice.vatPercentage > 0 && (
-                            <tr>
-                              <td colSpan="5" className="px-3 py-2 text-right font-semibold">
-                                VAT ({viewingInvoice.vatPercentage}%):
-                              </td>
-                              <td className="px-3 py-2 text-right font-semibold text-green-600">
-                                R {viewingInvoice.vatAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                              </td>
-                            </tr>
-                          )}
-                          <tr>
-                            <td colSpan="5" className="px-3 py-2 text-right font-bold">Total:</td>
-                            <td className="px-3 py-2 text-right font-bold text-green-600">
-                              R {viewingInvoice.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                            </td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
-                  </div>
-
-                  {viewingInvoice.descriptions && viewingInvoice.descriptions.length > 0 && (
-                    <div className="bg-purple-50 p-4 rounded-lg">
-                      <h3 className="font-semibold text-gray-800 text-sm mb-2">Descriptions</h3>
-                      <ul className="list-disc list-inside space-y-1">
-                        {viewingInvoice.descriptions.map((desc, index) => (
-                          <li key={index} className="text-sm text-gray-700">{desc}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+      {/* Payment Form Modal */}
+      {showPaymentForm && viewingInvoice && viewingInvoicePaymentInfo && (
+        <PaymentFormModal
+          invoice={viewingInvoice}
+          getPaymentInfo={getPaymentInfo}
+          onClose={() => setShowPaymentForm(false)}
+          onRecordPayment={handleRecordPaymentSubmit}
+          isPending={recordPaymentMutation.isPending}
+        />
       )}
     </>
   );

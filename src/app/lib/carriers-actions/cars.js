@@ -248,6 +248,7 @@ export async function getCarsByCompany(filters = {}) {
       startDate,
       endDate,
       carrierIds,
+      tripNumber, // Filter by trip number
       isActive, // Filter by active/inactive trips
       groupBy = "none", // "none", "carrier", "month"
     } = filters;
@@ -299,6 +300,43 @@ export async function getCarsByCompany(filters = {}) {
     // Carrier filter
     if (carrierIds && Array.isArray(carrierIds) && carrierIds.length > 0) {
       query.carrier = { $in: carrierIds };
+    }
+
+    // Trip number filter - find carriers with matching trip number first
+    if (tripNumber && tripNumber.trim()) {
+      const tripCarriers = await Carrier.find({
+        tripNumber: { $regex: tripNumber.trim(), $options: "i" },
+        type: "trip",
+      }).select("_id").lean();
+      
+      if (tripCarriers.length > 0) {
+        const tripCarrierIds = tripCarriers.map(tc => tc._id);
+        if (query.carrier) {
+          // If carrier filter already exists, combine with AND
+          if (Array.isArray(query.carrier.$in)) {
+            query.carrier.$in = query.carrier.$in.filter(id => 
+              tripCarrierIds.some(tid => tid.toString() === id.toString())
+            );
+          } else {
+            // Convert to array and filter
+            const existingCarrierId = query.carrier;
+            query.carrier = { 
+              $in: tripCarrierIds.filter(id => id.toString() === existingCarrierId.toString())
+            };
+          }
+        } else {
+          query.carrier = { $in: tripCarrierIds };
+        }
+      } else {
+        // No matching trips found, return empty result
+        return {
+          success: true,
+          cars: [],
+          groupedCars: {},
+          totalAmount: 0,
+          count: 0,
+        };
+      }
     }
 
     // First, get all cars matching the basic filters

@@ -467,37 +467,68 @@ export async function createCarrier(formData) {
 export async function updateCarrierExpense(carrierId, formData) {
   await connectDB();
   try {
+    const session = await getSession();
+    if (!session) {
+      return { error: "Unauthorized" };
+    }
+
     const expense = formData.get("totalExpense");
     const carrierName = formData.get("carrierName")?.trim() || "";
     const driverName = formData.get("driverName")?.trim() || "";
     const details = formData.get("details")?.trim() || "";
     const notes = formData.get("notes")?.trim() || "";
+    const tripNumber = formData.get("tripNumber")?.trim();
     
+    // Get carrier first to check permissions and type
+    const carrier = await Carrier.findById(carrierId);
+    if (!carrier) {
+      return { error: "Carrier not found" };
+    }
+
+    // Check if user has permission to update this carrier
+    if (session.role !== "super_admin" && carrier.userId.toString() !== session.userId) {
+      return { error: "Unauthorized" };
+    }
+
     const updateData = {
       totalExpense: parseFloat(expense) || 0,
+      carrierName,
+      driverName,
+      details,
+      notes,
     };
     
-    // Update carrier name, driver name, details, and notes
-    if (carrierName !== undefined) {
-      updateData.carrierName = carrierName;
-    }
-    if (driverName !== undefined) {
-      updateData.driverName = driverName;
-    }
-    if (details !== undefined) {
-      updateData.details = details;
-    }
-    if (notes !== undefined) {
-      updateData.notes = notes;
+    // Update trip number if provided and it's a trip-type carrier
+    if (carrier.type === "trip" && tripNumber) {
+      const newTripNumber = tripNumber.trim().toUpperCase();
+      
+      // Check if the new trip number is different from current
+      if (newTripNumber !== carrier.tripNumber) {
+        // Check if new trip number already exists (for the same user)
+        const existingCarrier = await Carrier.findOne({
+          tripNumber: newTripNumber,
+          type: "trip",
+          userId: carrier.userId,
+          _id: { $ne: carrierId } // Exclude current carrier
+        });
+        
+        if (existingCarrier) {
+          return {
+            error: `Trip number "${newTripNumber}" already exists. Please use a different trip number.`
+          };
+        }
+        
+        updateData.tripNumber = newTripNumber;
+      }
     }
     
-    const carrier = await Carrier.findByIdAndUpdate(
+    const updatedCarrier = await Carrier.findByIdAndUpdate(
       carrierId,
       { $set: updateData },
       { new: true }
     ).lean();
 
-    if (!carrier) {
+    if (!updatedCarrier) {
       return { error: "Carrier not found" };
     }
 
@@ -505,9 +536,10 @@ export async function updateCarrierExpense(carrierId, formData) {
     revalidatePath("/carrier-trips");
     return {
       success: true,
-      carrier: JSON.parse(JSON.stringify(carrier)),
+      carrier: JSON.parse(JSON.stringify(updatedCarrier)),
     };
   } catch (error) {
+    console.error("Error updating carrier expense:", error);
     return { error: "Failed to update expense" };
   }
 }

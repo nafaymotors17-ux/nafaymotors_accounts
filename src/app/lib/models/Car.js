@@ -64,10 +64,5 @@ CarSchema.pre("save", function () {
   }
 });
 
-CarSchema.index({ carrier: 1 });
-CarSchema.index({ companyName: 1 });
-CarSchema.index({ date: 1 });
-CarSchema.index({ userId: 1 });
-CarSchema.index({ userId: 1, date: 1 });
 
 export default mongoose.models.Car || mongoose.model("Car", CarSchema);

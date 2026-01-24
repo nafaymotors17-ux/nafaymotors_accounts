@@ -11,7 +11,7 @@ import { formatDate } from "@/app/lib/utils/dateFormat";
 import { getCurrentUser } from "@/app/lib/users-actions/users";
 import { createInvoice } from "@/app/lib/invoice-actions/invoices";
 
-export default function CompanyInvoiceGenerator({ companies, initialCompany = null, onClose }) {
+export default function CompanyInvoiceGenerator({ companies, initialCompany = null, onClose, selectedTripIds = [] }) {
   const params = useSearchParams();
   
   // Get filters from URL params (set in main page)
@@ -19,6 +19,7 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
   const startDateFilter = params.get("startDate") || "";
   const endDateFilter = params.get("endDate") || "";
   const isActiveFilter = params.get("isActive") || "";
+  const tripNumberFilter = params.get("tripNumber") || "";
   
   const [cars, setCars] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -43,8 +44,23 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
 
   const clientName = selectedCompany?.name || companyFilter || "";
 
+  // Cars are already filtered by selected trips from backend
+  // No need for frontend filtering
+  const filteredCars = cars;
+
+  // Extract unique trip numbers from cars
+  const tripNumbers = useMemo(() => {
+    const tripSet = new Set();
+    filteredCars.forEach((car) => {
+      if (car.carrier && car.carrier.tripNumber) {
+        tripSet.add(car.carrier.tripNumber);
+      }
+    });
+    return Array.from(tripSet).sort();
+  }, [filteredCars]);
+
   const totals = useMemo(() => {
-    const totalAmount = cars.reduce((sum, car) => sum + (car?.amount || 0), 0);
+    const totalAmount = filteredCars.reduce((sum, car) => sum + (car?.amount || 0), 0);
     const vatPercent = parseFloat(vatPercentage) || 0;
     const vatAmount = vatPercent > 0 ? (totalAmount * vatPercent) / 100 : 0;
     const totalWithVat = totalAmount + vatAmount;
@@ -54,19 +70,19 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
       vatAmount,
       totalWithVat 
     };
-  }, [cars, vatPercentage]);
+  }, [filteredCars, vatPercentage]);
 
-  // Fetch current user details on mount
+  // Fetch current user details on mount (for backend use only, not shown in UI)
   useEffect(() => {
     const fetchUser = async () => {
       try {
         const result = await getCurrentUser();
         if (result.success && result.user) {
           setCurrentUser(result.user);
-          // Auto-fill company name with username (capitalized)
+          // Set sender company name from username (for backend, not shown in UI)
           const username = result.user.username || "";
           setSenderCompanyName(username.charAt(0).toUpperCase() + username.slice(1));
-          // Auto-fill address
+          // Set address (for backend, not shown in UI)
           setSenderCompanyAddress(result.user.address || "");
         }
       } catch (error) {
@@ -92,17 +108,24 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
 
       setLoading(true);
       try {
+        // If trips are selected in main view, filter by those trip IDs
+        // Otherwise, use trip number filter if provided
+        const carrierIds = selectedTripIds.length > 0
+          ? selectedTripIds
+          : undefined;
+
         const result = await getCarsByCompany({
           companyName: selectedCompany.name,
           startDate: startDateFilter,
           endDate: endDateFilter,
+          tripNumber: tripNumberFilter || undefined, // Pass trip number filter
+          carrierIds: carrierIds, // Pass selected trip IDs from main view
           isActive: isActiveFilter, // Pass the active/inactive filter
         });
 
         if (result.success) {
           const fetchedCars = result.cars || [];
           setCars(fetchedCars);
-          // Note: User is the handling company, so they enter their details manually
         } else {
           alert(result.error || "Failed to fetch cars");
           setCars([]);
@@ -117,7 +140,7 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
     };
 
     fetchCars();
-  }, [companyFilter, startDateFilter, endDateFilter, isActiveFilter, selectedCompany]);
+  }, [companyFilter, startDateFilter, endDateFilter, isActiveFilter, tripNumberFilter, selectedCompany, selectedTripIds]);
 
   const addDescription = () => {
     setDescriptions([...descriptions, ""]);
@@ -134,23 +157,22 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
   };
 
   const saveInvoice = async () => {
-    if (!selectedCompany || cars.length === 0) {
+    if (!selectedCompany || filteredCars.length === 0) {
       return { success: false, error: "No cars to invoice" };
     }
 
-    if (!senderCompanyName.trim()) {
-      return { success: false, error: "Sender company name is required" };
-    }
+    // Use default sender company name if not set (from user)
+    const finalSenderName = senderCompanyName.trim() || (currentUser?.username ? currentUser.username.charAt(0).toUpperCase() + currentUser.username.slice(1) : "COMPANY");
 
     try {
       const invoiceData = {
-        senderCompanyName: senderCompanyName.trim(),
-        senderAddress: senderCompanyAddress.trim(),
+        senderCompanyName: finalSenderName,
+        senderAddress: senderCompanyAddress.trim() || "",
         clientCompanyName: clientName,
         invoiceDate: new Date(),
         startDate: startDateFilter,
         endDate: endDateFilter,
-        carIds: cars.map(car => car._id),
+        carIds: filteredCars.map(car => car._id),
         subtotal: totals.totalAmount,
         vatPercentage: totals.vatPercentage,
         vatAmount: totals.vatAmount,
@@ -173,10 +195,8 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
       return;
     }
 
-    if (!senderCompanyName.trim()) {
-      alert("Please enter sender company name");
-      return;
-    }
+    // Use default sender company name if not set
+    const finalSenderName = senderCompanyName.trim() || (currentUser?.username ? currentUser.username.charAt(0).toUpperCase() + currentUser.username.slice(1) : "COMPANY");
 
     // Save invoice first
     setIsSaving(true);
@@ -198,18 +218,15 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
       const pageWidth = doc.internal.pageSize.getWidth();
       let currentY = 20;
 
-      // Header - Sender Company
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(16);
-      doc.setTextColor(31, 41, 55);
-      doc.text(senderCompanyName.toUpperCase() || "COMPANY NAME", margin, currentY);
-      currentY += 6;
-
-      if (senderCompanyAddress) {
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(10);
-        doc.setTextColor(100);
-        doc.text(senderCompanyAddress, margin, currentY);
+      // Header - Trip Numbers instead of sender company
+      if (tripNumbers.length > 0) {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(14);
+        doc.setTextColor(31, 41, 55);
+        const tripText = tripNumbers.length === 1 
+          ? `TRIP: ${tripNumbers[0]}`
+          : `TRIPS: ${tripNumbers.join(", ")}`;
+        doc.text(tripText, margin, currentY);
         currentY += 6;
       }
 
@@ -375,10 +392,8 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
       return;
     }
 
-    if (!senderCompanyName.trim()) {
-      alert("Please enter sender company name");
-      return;
-    }
+    // Use default sender company name if not set
+    const finalSenderName = senderCompanyName.trim() || (currentUser?.username ? currentUser.username.charAt(0).toUpperCase() + currentUser.username.slice(1) : "COMPANY");
 
     // Save invoice first
     setIsSaving(true);
@@ -398,8 +413,9 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
       const wb = XLSX.utils.book_new();
 
       const invoiceData = [
-        [senderCompanyName.toUpperCase() || "COMPANY NAME"],
-        senderCompanyAddress ? [senderCompanyAddress] : [],
+        tripNumbers.length > 0 
+          ? [tripNumbers.length === 1 ? `TRIP: ${tripNumbers[0]}` : `TRIPS: ${tripNumbers.join(", ")}`]
+          : ["INVOICE"],
         [],
         ["TAX INVOICE"],
         [],
@@ -515,15 +531,20 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
 
               <div>
                 <label className="block text-[10px] font-medium text-gray-600 mb-0.5">
-                  Sender Company <span className="text-red-500">*</span>
+                  Trip Number(s)
                 </label>
                 <input
                   type="text"
-                  value={senderCompanyName}
-                  onChange={(e) => setSenderCompanyName(e.target.value)}
-                  placeholder="Company name"
-                  className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                  value={tripNumbers.join(", ") || "N/A"}
+                  className="w-full px-2 py-1 border border-gray-300 rounded text-xs bg-gray-50"
+                  readOnly
+                  title="Trip numbers from selected trips"
                 />
+                <p className="text-[9px] text-gray-500 mt-0.5">
+                  {tripNumbers.length > 0 
+                    ? `${tripNumbers.length} trip(s) selected`
+                    : "No trips found"}
+                </p>
               </div>
             </div>
 
@@ -544,19 +565,6 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
                 />
                 <p className="text-[9px] text-gray-500 mt-0.5">Leave empty for zero VAT</p>
               </div>
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-medium text-gray-600 mb-0.5">
-                Sender Address
-              </label>
-              <textarea
-                value={senderCompanyAddress}
-                onChange={(e) => setSenderCompanyAddress(e.target.value)}
-                placeholder="Company address"
-                rows={2}
-                className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
-              />
             </div>
           </div>
 
@@ -599,6 +607,18 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
             )}
           </div>
 
+          {/* Selected Trips Info */}
+          {selectedTripIds.length > 0 && (
+            <div className="bg-blue-50 p-2 rounded-lg border border-blue-200">
+              <p className="text-xs font-medium text-gray-700 mb-1">
+                Selected Trips: {selectedTripIds.length} trip(s) selected in main view
+              </p>
+              <p className="text-[10px] text-gray-600">
+                Invoice will include cars from the selected trips only. To change selection, go back to the main table.
+              </p>
+            </div>
+          )}
+
           {/* Preview */}
           {loading ? (
             <div className="text-center py-4 text-gray-500 text-xs">Loading cars...</div>
@@ -607,15 +627,17 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
               <p className="font-medium mb-1">Filters Required</p>
               <p>Please apply company and date filters in the main page before generating invoice.</p>
             </div>
-          ) : cars.length === 0 ? (
+          ) : filteredCars.length === 0 ? (
             <div className="text-center py-4 text-gray-500 border rounded-lg text-xs">
-              No cars found for the selected filters
+              {selectedTripIds.length > 0
+                ? "No cars found for the selected trips"
+                : "No cars found for the selected filters"}
             </div>
           ) : (
             <div className="border rounded-lg overflow-hidden">
               <div className="bg-gray-50 p-1.5 border-b">
                 <h3 className="font-semibold text-gray-800 text-xs">
-                  Invoice Preview ({cars.length} cars)
+                  Invoice Preview ({filteredCars.length} cars{selectedTripIds.length > 0 ? ` from ${selectedTripIds.length} trip(s)` : ""})
                 </h3>
               </div>
               <div className="overflow-x-auto max-h-64">
@@ -646,7 +668,7 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {cars.map((car, index) => (
+                    {filteredCars.map((car, index) => (
                       <tr key={car._id} className="hover:bg-gray-50">
                         <td className="px-1.5 py-1 text-gray-600">{index + 1}</td>
                         <td className="px-1.5 py-1 whitespace-nowrap">{formatDate(car.date)}</td>

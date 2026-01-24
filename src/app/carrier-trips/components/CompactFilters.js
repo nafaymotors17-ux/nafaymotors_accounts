@@ -1,21 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Search, X, Plus, Download } from "lucide-react";
 import { createCompany } from "@/app/lib/carriers-actions/companies";
 import CompanyInvoiceGenerator from "./CompanyInvoiceGenerator";
 
-export default function CompactFilters({ companies, carriers = [], isSuperAdmin = false, users = [] }) {
+export default function CompactFilters({ companies, carriers = [], isSuperAdmin = false, users = [], selectedTripIds = [] }) {
   const router = useRouter();
   const params = useSearchParams();
+  const queryClient = useQueryClient();
+  
+  // UI state only
   const [showAddCompany, setShowAddCompany] = useState(false);
   const [newCompanyName, setNewCompanyName] = useState("");
-  const [isCreating, setIsCreating] = useState(false);
-  const [error, setError] = useState("");
   const [showInvoiceGenerator, setShowInvoiceGenerator] = useState(false);
 
-  const handleFilter = async (e) => {
+  // Mutation for creating company
+  const createCompanyMutation = useMutation({
+    mutationFn: (name) => createCompany(name.trim()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["companies"] });
+      setNewCompanyName("");
+      setShowAddCompany(false);
+    },
+  });
+
+  const handleFilter = useCallback(async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
     const newParams = new URLSearchParams();
@@ -24,6 +36,7 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
     const endDate = formData.get("endDate");
     const company = formData.get("company");
     const carrierName = formData.get("carrierName");
+    const tripNumber = formData.get("tripNumber");
     const isActive = formData.get("isActive");
     const userId = formData.get("userId");
     const globalSearch = formData.get("globalSearch");
@@ -32,57 +45,50 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
     if (endDate) newParams.set("endDate", endDate);
     if (company) newParams.set("company", company);
     if (carrierName) newParams.set("carrierName", carrierName);
+    if (tripNumber) newParams.set("tripNumber", tripNumber);
     if (isActive) newParams.set("isActive", isActive);
     if (userId && isSuperAdmin) newParams.set("userId", userId);
     if (globalSearch) newParams.set("globalSearch", globalSearch);
 
-    // Update URL and refresh data immediately
+    // Update URL - React Query will automatically refetch
     const url = `/carrier-trips?${newParams.toString()}`;
-    await router.push(url);
-    // Refresh to ensure server components re-fetch with new params
-    router.refresh();
-  };
+    router.push(url);
+  }, [router, isSuperAdmin]);
 
-  const handleCreateCompany = async (e) => {
+  const handleCreateCompany = useCallback((e) => {
     e.preventDefault();
     if (!newCompanyName.trim()) {
-      setError("Company name is required");
       return;
     }
+    createCompanyMutation.mutate(newCompanyName);
+  }, [newCompanyName, createCompanyMutation]);
 
-    setIsCreating(true);
-    setError("");
-    const result = await createCompany(newCompanyName.trim());
+  const clearFilters = useCallback(() => {
+    router.push("/carrier-trips");
+  }, [router]);
 
-    if (result.success) {
-      setNewCompanyName("");
-      setShowAddCompany(false);
-      router.refresh();
-    } else {
-      setError(result.error || "Failed to create company");
-    }
-    setIsCreating(false);
-  };
-
-  const clearFilters = async () => {
-    await router.push("/carrier-trips");
-    // Refresh to ensure server components re-fetch with cleared params
-    router.refresh();
-  };
-
-  const hasActiveFilters =
-    params.get("startDate") || params.get("endDate") || params.get("company") || params.get("carrierName") || params.get("isActive") || params.get("userId") || params.get("globalSearch");
+  // Derived values with useMemo
+  const hasActiveFilters = useMemo(() => 
+    !!(params.get("startDate") || params.get("endDate") || params.get("company") || 
+       params.get("carrierName") || params.get("tripNumber") || params.get("isActive") || 
+       params.get("userId") || params.get("globalSearch")),
+    [params]
+  );
   
-  const selectedCompany = params.get("company") || "";
-  const selectedCarrierName = params.get("carrierName") || "";
-  const startDate = params.get("startDate") || "";
-  const endDate = params.get("endDate") || "";
-  const selectedIsActive = params.get("isActive") || "";
-  const selectedUserId = params.get("userId") || "";
-  const globalSearchValue = params.get("globalSearch") || "";
+  const selectedCompany = useMemo(() => params.get("company") || "", [params]);
+  const selectedCarrierName = useMemo(() => params.get("carrierName") || "", [params]);
+  const selectedTripNumber = useMemo(() => params.get("tripNumber") || "", [params]);
+  const startDate = useMemo(() => params.get("startDate") || "", [params]);
+  const endDate = useMemo(() => params.get("endDate") || "", [params]);
+  const selectedIsActive = useMemo(() => params.get("isActive") || "", [params]);
+  const selectedUserId = useMemo(() => params.get("userId") || "", [params]);
+  const globalSearchValue = useMemo(() => params.get("globalSearch") || "", [params]);
   
   // Show invoice button only when company and both dates are selected
-  const canGenerateInvoice = selectedCompany && startDate && endDate;
+  const canGenerateInvoice = useMemo(
+    () => !!(selectedCompany && startDate && endDate),
+    [selectedCompany, startDate, endDate]
+  );
 
   const handleGenerateInvoice = () => {
     if (!selectedCompany) {
@@ -162,6 +168,20 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
               key={`carrierName-${selectedCarrierName}`}
               defaultValue={selectedCarrierName}
               placeholder="Search carrier..."
+              className="w-32 px-1.5 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <label className="text-[10px] font-medium text-gray-600 whitespace-nowrap">
+              Trip #:
+            </label>
+            <input
+              type="text"
+              name="tripNumber"
+              key={`tripNumber-${selectedTripNumber}`}
+              defaultValue={selectedTripNumber}
+              placeholder="Search trip..."
               className="w-32 px-1.5 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
@@ -259,33 +279,33 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
                 value={newCompanyName}
                 onChange={(e) => {
                   setNewCompanyName(e.target.value.toUpperCase());
-                  setError("");
                 }}
                 placeholder="Company name"
                 className="w-full px-2 py-1 text-xs border border-blue-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                 autoFocus
-                disabled={isCreating}
+                disabled={createCompanyMutation.isPending}
               />
-              {error && (
-                <p className="text-[10px] text-red-600 mt-0.5">{error}</p>
+              {createCompanyMutation.isError && (
+                <p className="text-[10px] text-red-600 mt-0.5">
+                  {createCompanyMutation.error?.error || "Failed to create company"}
+                </p>
               )}
             </div>
             <button
               type="submit"
-              disabled={isCreating || !newCompanyName.trim()}
+              disabled={createCompanyMutation.isPending || !newCompanyName.trim()}
               className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
-              {isCreating ? "..." : "Add"}
+              {createCompanyMutation.isPending ? "..." : "Add"}
             </button>
             <button
               type="button"
               onClick={() => {
                 setShowAddCompany(false);
                 setNewCompanyName("");
-                setError("");
               }}
               className="px-2 py-1 text-xs border border-gray-300 rounded text-gray-700 hover:bg-gray-50"
-              disabled={isCreating}
+              disabled={createCompanyMutation.isPending}
             >
               <X className="w-3 h-3" />
             </button>
@@ -299,6 +319,7 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
       <CompanyInvoiceGenerator
         companies={companies}
         initialCompany={selectedCompany ? companies.find(c => c.name === selectedCompany) : null}
+        selectedTripIds={selectedTripIds}
         onClose={() => {
           setShowInvoiceGenerator(false);
         }}

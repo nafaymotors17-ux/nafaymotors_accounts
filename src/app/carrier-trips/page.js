@@ -1,29 +1,115 @@
-// app/carriers/page.jsx
+"use client";
+
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "next/navigation";
 import { getAllCarriers } from "@/app/lib/carriers-actions/carriers";
 import { getAllCompanies } from "@/app/lib/carriers-actions/companies";
 import { getAllUsersForSelection } from "@/app/lib/users-actions/users";
-import { getSession } from "@/app/lib/auth/getSession";
+import { useUser } from "@/app/components/UserContext";
 import SimpleCarriersTable from "./components/SimpleCarriersTable";
 import CompactFilters from "./components/CompactFilters";
 
-export default async function CarriersPage({ searchParams }) {
-  const params = await searchParams;
-  const session = await getSession();
-  
-  // Get data
-  const [carriersResult, companiesResult, usersResult] = await Promise.all([
-    getAllCarriers(params),
-    getAllCompanies(),
-    session?.role === "super_admin" ? getAllUsersForSelection() : Promise.resolve({ success: false, users: [] }),
-  ]);
-  const carriers = carriersResult.carriers || [];
-  const companies = companiesResult.companies || [];
-  const users = usersResult.users || [];
-  const pagination = carriersResult.pagination;
+export default function CarriersPage() {
+  // UI state for selected trips
+  const [selectedTripIds, setSelectedTripIds] = useState([]);
+  const searchParams = useSearchParams();
+  const { user } = useUser();
 
-  // Calculate totals from all carriers
-  const totalCars = carriers.reduce((sum, c) => sum + (c.carCount || 0), 0);
-  const totalAmount = carriers.reduce((sum, c) => sum + (c.totalAmount || 0), 0);
+  // Build query params from URL
+  const queryParams = useMemo(() => {
+    const params = {};
+    const page = searchParams.get("page");
+    const limit = searchParams.get("limit");
+    const startDate = searchParams.get("startDate");
+    const endDate = searchParams.get("endDate");
+    const company = searchParams.get("company");
+    const carrierName = searchParams.get("carrierName");
+    const isActive = searchParams.get("isActive");
+    const userId = searchParams.get("userId");
+    const globalSearch = searchParams.get("globalSearch");
+
+    if (page) params.page = page;
+    if (limit) params.limit = limit;
+    if (startDate) params.startDate = startDate;
+    if (endDate) params.endDate = endDate;
+    if (company) params.company = company;
+    if (carrierName) params.carrierName = carrierName;
+    if (isActive) params.isActive = isActive;
+    if (userId) params.userId = userId;
+    if (globalSearch) params.globalSearch = globalSearch;
+
+    return params;
+  }, [searchParams]);
+
+  // Server data with React Query
+  const {
+    data: carriersData,
+    isLoading: carriersLoading,
+  } = useQuery({
+    queryKey: ["carriers", queryParams],
+    queryFn: () => getAllCarriers(queryParams),
+  });
+
+  const {
+    data: companiesData,
+    isLoading: companiesLoading,
+  } = useQuery({
+    queryKey: ["companies"],
+    queryFn: getAllCompanies,
+  });
+
+  const {
+    data: usersData,
+    isLoading: usersLoading,
+  } = useQuery({
+    queryKey: ["users"],
+    queryFn: getAllUsersForSelection,
+    enabled: user?.role === "super_admin",
+  });
+
+  // Derived values with useMemo
+  const carriers = useMemo(
+    () => carriersData?.carriers || [],
+    [carriersData?.carriers]
+  );
+
+  const companies = useMemo(
+    () => companiesData?.companies || [],
+    [companiesData?.companies]
+  );
+
+  const users = useMemo(
+    () => usersData?.users || [],
+    [usersData?.users]
+  );
+
+  const pagination = useMemo(
+    () => carriersData?.pagination,
+    [carriersData?.pagination]
+  );
+
+  const isSuperAdmin = useMemo(
+    () => user?.role === "super_admin",
+    [user?.role]
+  );
+
+  const totalCars = useMemo(
+    () => carriers.reduce((sum, c) => sum + (c.carCount || 0), 0),
+    [carriers]
+  );
+
+  const totalAmount = useMemo(
+    () => carriers.reduce((sum, c) => sum + (c.totalAmount || 0), 0),
+    [carriers]
+  );
+
+  const totalTrips = useMemo(
+    () => pagination?.total || carriers.length,
+    [pagination?.total, carriers.length]
+  );
+
+  const loading = carriersLoading || companiesLoading || usersLoading;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -42,25 +128,28 @@ export default async function CarriersPage({ searchParams }) {
           </div>
           <div className="bg-white px-3 py-2 rounded-lg shadow-sm border border-gray-200">
             <p className="text-[10px] text-gray-500 mb-0.5">Total Trips</p>
-            <p className="text-lg font-bold text-blue-600">{pagination?.total || carriers.length}</p>
+            <p className="text-lg font-bold text-blue-600">{totalTrips}</p>
           </div>
         </div>
 
         {/* Compact Filters */}
-        <CompactFilters 
-          companies={companies} 
-          carriers={carriers} 
-          isSuperAdmin={session?.role === "super_admin"}
+        <CompactFilters
+          companies={companies}
+          carriers={carriers}
+          isSuperAdmin={isSuperAdmin}
           users={users}
+          selectedTripIds={selectedTripIds}
         />
 
         {/* Simple Carriers Table */}
-        <SimpleCarriersTable 
-          carriers={carriers} 
+        <SimpleCarriersTable
+          carriers={carriers}
           companies={companies}
           users={users}
           pagination={pagination}
-          isSuperAdmin={session?.role === "super_admin"}
+          isSuperAdmin={isSuperAdmin}
+          loading={loading}
+          onSelectedTripsChange={setSelectedTripIds}
         />
       </div>
     </div>

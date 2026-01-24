@@ -30,6 +30,9 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
   useEffect(() => {
     if (!carrier) {
       loadGeneratedTripNumber();
+    } else {
+      // If editing, set the existing trip number
+      setTripNumber(carrier.tripNumber || "");
     }
   }, [carrier, selectedUserId]);
 
@@ -151,14 +154,30 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
                 <label className="block text-xs font-medium text-gray-700 mb-0.5">
                   Trip Number *
                 </label>
-                <input
-                  type="text"
-                  name="tripNumber"
-                  required
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
-                  placeholder="e.g., TRIP-001"
-                  disabled={isSubmitting}
-                />
+                <div className="flex gap-1.5">
+                  <input
+                    type="text"
+                    name="tripNumber"
+                    value={tripNumber}
+                    onChange={(e) => setTripNumber(e.target.value.toUpperCase())}
+                    required
+                    className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded-md"
+                    placeholder="e.g., TRIP-001"
+                    disabled={isSubmitting || isGenerating}
+                  />
+                  <button
+                    type="button"
+                    onClick={loadGeneratedTripNumber}
+                    disabled={isSubmitting || isGenerating}
+                    className="px-2 py-1.5 text-xs border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                    title="Generate new trip number"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isGenerating ? "animate-spin" : ""}`} />
+                  </button>
+                </div>
+                <p className="text-[10px] text-gray-500 mt-0.5">
+                  Auto-generated, but you can edit it. Must be unique.
+                </p>
               </div>
 
               <div>
@@ -205,6 +224,36 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
 
           {carrier && (
             <>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-0.5">
+                  Trip Number *
+                </label>
+                <div className="flex gap-1.5">
+                  <input
+                    type="text"
+                    name="tripNumber"
+                    value={tripNumber}
+                    onChange={(e) => setTripNumber(e.target.value.toUpperCase())}
+                    required
+                    className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded-md"
+                    placeholder="e.g., TRIP-001"
+                    disabled={isSubmitting || isGenerating}
+                  />
+                  <button
+                    type="button"
+                    onClick={loadGeneratedTripNumber}
+                    disabled={isSubmitting || isGenerating}
+                    className="px-2 py-1.5 text-xs border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                    title="Generate new trip number"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isGenerating ? "animate-spin" : ""}`} />
+                  </button>
+                </div>
+                <p className="text-[10px] text-gray-500 mt-0.5">
+                  Editable. Must be unique for your account.
+                </p>
+              </div>
+
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-0.5">
                   Carrier Name

@@ -79,6 +79,53 @@ const InvoiceSchema = new mongoose.Schema({
   isActive: {
     type: String, // "true", "false", or empty
   },
+  // Trip tracking - which trip(s) this invoice is from
+  tripNumbers: [{
+    type: String,
+    trim: true,
+  }],
+  tripDates: [{
+    type: Date,
+  }],
+  // Payment tracking
+  payments: [{
+    amount: {
+      type: Number,
+      required: true,
+      default: 0,
+    },
+    paymentDate: {
+      type: Date,
+      default: Date.now,
+    },
+    paymentMethod: {
+      type: String,
+      trim: true,
+      default: "Cash", // Cash, Bank Transfer, Check, etc.
+    },
+    notes: {
+      type: String,
+      trim: true,
+    },
+    recordedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  }],
+  // Due date for payment tracking
+  dueDate: {
+    type: Date,
+  },
+  // Payment status - calculated field
+  paymentStatus: {
+    type: String,
+    enum: ["unpaid", "partial", "paid", "overdue"],
+    default: "unpaid",
+  },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -91,13 +138,31 @@ const InvoiceSchema = new mongoose.Schema({
 
 InvoiceSchema.pre("save", function () {
   this.updatedAt = Date.now();
+  
+  // Calculate payment status
+  if (this.payments && Array.isArray(this.payments)) {
+    const totalPaid = this.payments.reduce((sum, payment) => sum + (payment.amount || 0), 0);
+    const totalAmount = this.totalAmount || 0;
+    
+    if (totalPaid >= totalAmount) {
+      this.paymentStatus = "paid";
+    } else if (totalPaid > 0) {
+      // Check if overdue
+      if (this.dueDate && new Date() > new Date(this.dueDate)) {
+        this.paymentStatus = "overdue";
+      } else {
+        this.paymentStatus = "partial";
+      }
+    } else {
+      // Check if overdue
+      if (this.dueDate && new Date() > new Date(this.dueDate)) {
+        this.paymentStatus = "overdue";
+      } else {
+        this.paymentStatus = "unpaid";
+      }
+    }
+  }
 });
 
-// Indexes for performance
-InvoiceSchema.index({ invoiceNumber: 1 });
-InvoiceSchema.index({ userId: 1 });
-InvoiceSchema.index({ clientCompanyName: 1 });
-InvoiceSchema.index({ invoiceDate: -1 });
-InvoiceSchema.index({ userId: 1, invoiceDate: -1 });
 
 export default mongoose.models.Invoice || mongoose.model("Invoice", InvoiceSchema);

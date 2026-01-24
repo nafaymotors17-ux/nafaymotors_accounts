@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, useTransition, useRef, useEffect } from "react";
-import React from "react";
-import { useSearchParams } from "next/navigation";
+import React, { useState, useCallback, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, ChevronDown, ChevronRight, Edit, Trash2, FileSpreadsheet } from "lucide-react";
 import CarrierTripForm from "./CarrierTripForm";
 import CarForm from "./CarForm";
 import { deleteCar } from "@/app/lib/carriers-actions/cars";
-import { useRouter } from "next/navigation";
 import { formatDate } from "@/app/lib/utils/dateFormat";
 import { getAllCarriers, deleteCarrier } from "@/app/lib/carriers-actions/carriers";
 import { exportCarriersAndCars } from "@/app/lib/utils/exportCarriers";
@@ -37,203 +36,194 @@ function TruncatedText({ text, maxLines = 2, className = "" }) {
   );
 }
 
+// Hook for fetching cars for a carrier
+function useCarrierCars(carrierId, filters, enabled) {
+  const queryParams = useMemo(() => {
+    const params = new URLSearchParams();
+    if (filters.company) params.set("company", filters.company);
+    if (filters.startDate) params.set("startDate", filters.startDate);
+    if (filters.endDate) params.set("endDate", filters.endDate);
+    return params.toString();
+  }, [filters]);
+
+  return useQuery({
+    queryKey: ["carrierCars", carrierId, queryParams],
+    queryFn: async () => {
+      const url = `/api/carriers/${carrierId}/cars${queryParams ? `?${queryParams}` : ""}`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Failed to fetch cars");
+      return response.json();
+    },
+    enabled: enabled && !!carrierId,
+  });
+}
+
 export default function SimpleCarriersTable({
-  carriers: initialCarriers,
+  carriers,
   companies,
   users = [],
-  pagination: initialPagination,
+  pagination,
   isSuperAdmin = false,
+  loading = false,
+  onSelectedTripsChange,
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [isPending, startTransition] = useTransition();
-  
-  // Optimistic state - keep local copy of carriers for instant updates
-  const [carriers, setCarriers] = useState(initialCarriers);
-  const [pagination, setPagination] = useState(initialPagination);
-  
-  // Sync with server props when they change
-  React.useEffect(() => {
-    setCarriers(initialCarriers);
-    setPagination(initialPagination);
-  }, [initialCarriers, initialPagination]);
-  
+  const queryClient = useQueryClient();
+
+  // UI state only
   const [expandedTrips, setExpandedTrips] = useState(new Set());
   const [showTripForm, setShowTripForm] = useState(false);
   const [editingCarrier, setEditingCarrier] = useState(null);
-  const [carrierCars, setCarrierCars] = useState({});
   const [showCarForm, setShowCarForm] = useState({});
   const [carFormCarrier, setCarFormCarrier] = useState(null);
   const [isExporting, setIsExporting] = useState(false);
-  const [togglingCarriers, setTogglingCarriers] = useState(new Set());
+  const [selectedTripIds, setSelectedTripIds] = useState(new Set());
 
-  const toggleTrip = async (carrierId) => {
-    const carrierIdStr = carrierId.toString();
-    const newExpanded = new Set(expandedTrips);
-    if (newExpanded.has(carrierIdStr)) {
-      newExpanded.delete(carrierIdStr);
-    } else {
-      newExpanded.add(carrierIdStr);
-      // Fetch cars for this carrier if not already loaded
-      if (!carrierCars[carrierIdStr]) {
-        try {
-          // Build query params with current filters
-          const params = new URLSearchParams();
-          const company = searchParams.get("company");
-          const startDate = searchParams.get("startDate");
-          const endDate = searchParams.get("endDate");
-          
-          if (company) params.set("company", company);
-          if (startDate) params.set("startDate", startDate);
-          if (endDate) params.set("endDate", endDate);
-          
-          const queryString = params.toString();
-          const url = `/api/carrier-trips/${carrierIdStr}/cars${queryString ? `?${queryString}` : ""}`;
-          const response = await fetch(url);
-          if (response.ok) {
-            const data = await response.json();
-            setCarrierCars({ ...carrierCars, [carrierIdStr]: data.cars });
-          } else {
-            console.error("Failed to fetch cars:", response.statusText);
-          }
-        } catch (error) {
-          console.error("Error fetching cars:", error);
-        }
-      }
+  // Notify parent when selected trips change
+  const handleSelectedTripsChange = useCallback((newSelectedTrips) => {
+    setSelectedTripIds(newSelectedTrips);
+    if (onSelectedTripsChange) {
+      onSelectedTripsChange(Array.from(newSelectedTrips));
     }
-    setExpandedTrips(newExpanded);
-  };
+  }, [onSelectedTripsChange]);
 
-  const handleDeleteCar = async (carId, carrierId) => {
-    if (!confirm("Are you sure you want to delete this car?")) return;
-    const result = await deleteCar(carId);
-    if (result.success) {
-      router.refresh();
-      // Remove from local state
-      if (carrierCars[carrierId]) {
-        setCarrierCars({
-          ...carrierCars,
-          [carrierId]: carrierCars[carrierId].filter((car) => car._id !== carId),
-        });
+  // Derived values with useMemo
+  const currentFilters = useMemo(() => ({
+    company: searchParams.get("company") || "",
+    startDate: searchParams.get("startDate") || "",
+    endDate: searchParams.get("endDate") || "",
+  }), [searchParams]);
+
+  // Mutations
+  const deleteCarMutation = useMutation({
+    mutationFn: deleteCar,
+    onSuccess: (_, carId) => {
+      // Invalidate carrier cars queries
+      queryClient.invalidateQueries({ queryKey: ["carrierCars"] });
+      // Invalidate carriers to update counts
+      queryClient.invalidateQueries({ queryKey: ["carriers"] });
+    },
+  });
+
+  const deleteCarrierMutation = useMutation({
+    mutationFn: deleteCarrier,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["carriers"] });
+    },
+  });
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: async (carrierId) => {
+      const response = await fetch(`/api/carriers/${carrierId}/toggle-active`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Network error' }));
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
-    }
-  };
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["carriers"] });
+    },
+  });
 
-  const handleDeleteCarrier = async (carrierId, tripNumber) => {
+  const toggleTrip = useCallback((carrierId) => {
     const carrierIdStr = carrierId.toString();
-    const tripDisplay = tripNumber || carrierIdStr;
-    
-    const confirmed = window.confirm(
-      `Are you sure you want to delete trip "${tripDisplay}"?\n\nThis will permanently delete:\n- The trip/carrier\n- All cars associated with this trip\n\nThis action cannot be undone!`
-    );
-    
-    if (!confirmed) return;
-
-    try {
-      const result = await deleteCarrier(carrierIdStr);
-      if (result.success) {
-        // Remove from local state immediately
-        setCarriers(prevCarriers => 
-          prevCarriers.filter(carrier => carrier._id.toString() !== carrierIdStr)
-        );
-        // Refresh to update pagination and totals
-        router.refresh();
-        alert(`Trip deleted successfully. ${result.deletedCarsCount} car(s) were also deleted.`);
+    setExpandedTrips((prev) => {
+      const newExpanded = new Set(prev);
+      if (newExpanded.has(carrierIdStr)) {
+        newExpanded.delete(carrierIdStr);
       } else {
-        alert(result.error || "Failed to delete trip");
+        newExpanded.add(carrierIdStr);
       }
-    } catch (error) {
-      console.error("Error deleting carrier:", error);
-      alert("An error occurred while deleting the trip");
-    }
-  };
-
-  const handleToggleActive = async (e, carrierId, currentStatus) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    // Convert carrierId to string if it's an ObjectId
-    const carrierIdStr = carrierId?.toString ? carrierId.toString() : String(carrierId);
-    
-    // Optimistic update - update UI immediately
-    const previousCarriers = [...carriers];
-    const newStatus = currentStatus === false ? true : false;
-    
-    setCarriers(prevCarriers => 
-      prevCarriers.map(carrier => 
-        carrier._id.toString() === carrierIdStr 
-          ? { ...carrier, isActive: newStatus }
-          : carrier
-      )
-    );
-    setTogglingCarriers(prev => new Set(prev).add(carrierIdStr));
-    
-    // Make API call in background
-    startTransition(async () => {
-      try {
-        const response = await fetch(`/api/carriers/${carrierIdStr}/toggle-active`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ error: 'Network error' }));
-          throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
-        
-        if (result.success) {
-          // Success - sync with server in background (non-blocking)
-          // Only refresh if we need to update totals or other calculated fields
-          router.refresh();
-        } else {
-          // Revert on error
-          setCarriers(previousCarriers);
-          console.error("Toggle failed:", result.error);
-          alert(result.error || "Failed to update trip status");
-        }
-      } catch (error) {
-        // Revert on error
-        setCarriers(previousCarriers);
-        console.error("Error toggling active status:", error);
-        alert("An error occurred while updating trip status: " + error.message);
-      } finally {
-        setTogglingCarriers(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(carrierIdStr);
-          return newSet;
-        });
-      }
+      return newExpanded;
     });
-  };
+  }, []);
 
-  const handleExportToExcel = async () => {
+  const handleDeleteCar = useCallback(
+    async (carId, carrierId) => {
+      if (!confirm("Are you sure you want to delete this car?")) return;
+      deleteCarMutation.mutate(carId);
+    },
+    [deleteCarMutation]
+  );
+
+  const handleDeleteCarrier = useCallback(
+    async (carrierId, tripNumber) => {
+      const carrierIdStr = carrierId.toString();
+      const tripDisplay = tripNumber || carrierIdStr;
+
+      const confirmed = window.confirm(
+        `Are you sure you want to delete trip "${tripDisplay}"?\n\nThis will permanently delete:\n- The trip/carrier\n- All cars associated with this trip\n\nThis action cannot be undone!`
+      );
+
+      if (!confirmed) return;
+      deleteCarrierMutation.mutate(carrierIdStr, {
+        onSuccess: (result) => {
+          alert(`Trip deleted successfully. ${result.deletedCarsCount} car(s) were also deleted.`);
+        },
+        onError: (error) => {
+          alert(error.message || "Failed to delete trip");
+        },
+      });
+    },
+    [deleteCarrierMutation]
+  );
+
+  const handleToggleActive = useCallback(
+    (e, carrierId, currentStatus) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const carrierIdStr = carrierId?.toString ? carrierId.toString() : String(carrierId);
+      const newStatus = currentStatus === false ? true : false;
+
+      // Optimistic update
+      queryClient.setQueryData(["carriers"], (oldData) => {
+        if (!oldData) return oldData;
+        return {
+          ...oldData,
+          carriers: oldData.carriers.map((carrier) =>
+            carrier._id.toString() === carrierIdStr
+              ? { ...carrier, isActive: newStatus }
+              : carrier
+          ),
+        };
+      });
+
+      toggleActiveMutation.mutate(carrierIdStr, {
+        onError: () => {
+          // Revert on error
+          queryClient.invalidateQueries({ queryKey: ["carriers"] });
+        },
+      });
+    },
+    [toggleActiveMutation, queryClient]
+  );
+
+  const handleExportToExcel = useCallback(async () => {
     setIsExporting(true);
     try {
-      // Get current filter parameters from URL
       const currentParams = {
         company: searchParams.get("company") || "",
         startDate: searchParams.get("startDate") || "",
         endDate: searchParams.get("endDate") || "",
         isActive: searchParams.get("isActive") || "",
-        limit: 10000, // Get all filtered results
+        limit: 10000,
         page: 1,
       };
 
-      // Fetch all filtered carriers
       const result = await getAllCarriers(currentParams);
-      const allCarriers = result.carriers || [];
+      const allCarriers = result?.carriers || result?.carriers || [];
 
       if (allCarriers.length === 0) {
         alert("No trips found to export");
-        setIsExporting(false);
         return;
       }
 
-      // Export using utility function
       exportCarriersAndCars(allCarriers, currentParams, isSuperAdmin);
     } catch (error) {
       console.error("Error exporting to Excel:", error);
@@ -241,7 +231,30 @@ export default function SimpleCarriersTable({
     } finally {
       setIsExporting(false);
     }
-  };
+  }, [searchParams, isSuperAdmin]);
+
+
+  const handleCarFormClose = useCallback(
+    (carrierIdStr) => {
+      setShowCarForm((prev) => ({ ...prev, [carrierIdStr]: false }));
+      setCarFormCarrier(null);
+      // Invalidate cars query for this carrier
+      queryClient.invalidateQueries({ queryKey: ["carrierCars", carrierIdStr] });
+      // Invalidate carriers to update counts
+      queryClient.invalidateQueries({ queryKey: ["carriers"] });
+    },
+    [queryClient]
+  );
+
+  // Derived pagination info
+  const paginationInfo = useMemo(() => {
+    if (!pagination) return null;
+    return {
+      start: (pagination.page - 1) * pagination.limit + 1,
+      end: Math.min(pagination.page * pagination.limit, pagination.total),
+      total: pagination.total,
+    };
+  }, [pagination]);
 
   return (
     <>
@@ -272,12 +285,11 @@ export default function SimpleCarriersTable({
         </div>
 
         {/* Pagination - Moved to top */}
-        {pagination && pagination.total > 0 && (
+        {pagination && pagination.total > 0 && paginationInfo && (
           <div className="p-3 border-b bg-gray-50 flex flex-col sm:flex-row justify-between items-center gap-3">
             <div className="text-xs text-gray-600">
-              Showing {((pagination.page - 1) * pagination.limit) + 1} to{" "}
-              {Math.min(pagination.page * pagination.limit, pagination.total)} of{" "}
-              {pagination.total} trips
+              Showing {paginationInfo.start} to {paginationInfo.end} of{" "}
+              {paginationInfo.total} trips
             </div>
             <div className="flex items-center gap-2">
               <label className="text-xs text-gray-600">Page size:</label>
@@ -286,7 +298,7 @@ export default function SimpleCarriersTable({
                 onChange={(e) => {
                   const params = new URLSearchParams(window.location.search);
                   params.set("limit", e.target.value);
-                  params.set("page", "1"); // Reset to first page
+                  params.set("page", "1");
                   router.push(`/carrier-trips?${params.toString()}`);
                 }}
                 className="px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
@@ -326,7 +338,11 @@ export default function SimpleCarriersTable({
           </div>
         )}
 
-        {carriers.length === 0 ? (
+        {loading ? (
+          <div className="p-6 text-center text-gray-500 text-sm">
+            <p>Loading trips...</p>
+          </div>
+        ) : carriers.length === 0 ? (
           <div className="p-6 text-center text-gray-500 text-sm">
             <p>No trips found. Create your first trip to get started.</p>
           </div>
@@ -335,6 +351,26 @@ export default function SimpleCarriersTable({
             <table className="min-w-full text-xs">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
+                  <th className="px-2 py-1.5 text-center font-medium text-gray-600 text-[10px] w-8">
+                    <input
+                      type="checkbox"
+                      checked={carriers.filter(c => (c.type === "trip" || (!c.type && c.tripNumber))).length > 0 && 
+                               carriers.filter(c => (c.type === "trip" || (!c.type && c.tripNumber)))
+                                 .every(c => selectedTripIds.has(c._id.toString()))}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          const tripIds = carriers
+                            .filter(c => (c.type === "trip" || (!c.type && c.tripNumber)))
+                            .map(c => c._id.toString());
+                          handleSelectedTripsChange(new Set(tripIds));
+                        } else {
+                          handleSelectedTripsChange(new Set());
+                        }
+                      }}
+                      className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      title="Select all trips"
+                    />
+                  </th>
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px] w-6"></th>
                   <th className="px-2 py-1.5 text-center font-medium text-gray-600 text-[10px] w-8">#</th>
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">TRIPS</th>
@@ -357,267 +393,42 @@ export default function SimpleCarriersTable({
                 {carriers.map((carrier, index) => {
                   const carrierIdStr = carrier._id.toString();
                   const isExpanded = expandedTrips.has(carrierIdStr);
-                  // Use cars from carrier data if available (from filtered query), otherwise fetch
-                  const cars = carrierCars[carrierIdStr] || carrier.cars || [];
-                  const carsTotal = cars.reduce((sum, car) => sum + (car.amount || 0), 0);
-                  
-                  // Calculate profit: totalAmount - totalExpense
-                  // Use carrier.totalAmount if available (from server calculation), otherwise use carsTotal
-                  const totalAmount = carrier.totalAmount || carsTotal;
-                  const totalExpense = carrier.totalExpense || 0;
-                  const profit = totalAmount - totalExpense;
-                  
-                  // Calculate row number based on pagination
-                  const rowNumber = pagination ? ((pagination.page - 1) * pagination.limit) + index + 1 : index + 1;
-                  
-                  // Debug: Log carrier data to check type field
-                  if (!carrier.type && carrier.tripNumber) {
-                    console.log("Carrier missing type field:", { 
-                      _id: carrier._id, 
-                      tripNumber: carrier.tripNumber, 
-                      name: carrier.name,
-                      type: carrier.type 
-                    });
-                  }
 
                   return (
-                    <React.Fragment key={carrier._id}>
-                      <tr
-                        className={`hover:bg-gray-50 cursor-pointer ${(carrier.isActive === false) ? 'opacity-60 bg-gray-100' : ''}`}
-                        onClick={() => toggleTrip(carrierIdStr)}
-                      >
-                        <td className="px-2 py-1.5 text-gray-400">
-                          {isExpanded ? (
-                            <ChevronDown className="w-3 h-3" />
-                          ) : (
-                            <ChevronRight className="w-3 h-3" />
-                          )}
-                        </td>
-                        <td className="px-2 py-1.5 text-center text-gray-600 font-medium">
-                          {rowNumber}
-                        </td>
-                        <td className="px-1.5 py-1.5 font-semibold text-gray-900">
-                          <div className="flex items-center gap-1">
-                            {carrier.tripNumber || carrier.name || 'N/A'}
-                            {carrier.type === 'company' && (
-                              <span className="text-[8px] text-gray-500 bg-gray-100 px-1 py-0.5 rounded">CO</span>
-                            )}
-                          </div>
-                        </td>
-                        {isSuperAdmin && (
-                          <td className="px-2 py-1.5 text-gray-600 text-[10px]">
-                            {carrier.user?.username ? (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-blue-100 text-blue-800">
-                                {carrier.user.username}
-                              </span>
-                            ) : (
-                              <span className="text-gray-400">N/A</span>
-                            )}
-                          </td>
-                        )}
-                        <td className="px-2 py-1.5 text-gray-600 whitespace-nowrap">
-                          {formatDate(carrier.date)}
-                        </td>
-                        <td className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[100px] truncate" title={carrier.carrierName || ""}>
-                          {carrier.carrierName || "-"}
-                        </td>
-                        <td className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[100px] truncate" title={carrier.driverName || ""}>
-                          {carrier.driverName || "-"}
-                        </td>
-                        <td className="px-2 py-2 text-gray-700 text-[10px] min-w-[200px] max-w-[250px]">
-                          <TruncatedText text={carrier.details} maxLines={2} />
-                        </td>
-                        <td className="px-2 py-2 text-gray-700 text-[10px] min-w-[200px] max-w-[250px]">
-                          <TruncatedText text={carrier.notes} maxLines={2} />
-                        </td>
-                        <td className="px-2 py-1.5 text-right text-gray-700">
-                          {carrier.carCount || 0}
-                        </td>
-                        <td className="px-2 py-1.5 text-right text-green-600 font-semibold whitespace-nowrap">
-                          R{(carrier.totalAmount || 0).toLocaleString("en-US", {
-                            minimumFractionDigits: 2,
-                          })}
-                        </td>
-                        <td className="px-2 py-1.5 text-right text-red-600 whitespace-nowrap">
-                          R{(carrier.totalExpense || 0).toLocaleString("en-US", {
-                            minimumFractionDigits: 2,
-                          })}
-                        </td>
-                        <td className={`px-2 py-1.5 text-right font-semibold whitespace-nowrap ${
-                          profit >= 0 ? "text-green-600" : "text-red-600"
-                        }`}>
-                          R{profit.toLocaleString("en-US", {
-                            minimumFractionDigits: 2,
-                          })}
-                        </td>
-                        <td
-                          className="px-2 py-1.5 text-center"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div className="flex items-center justify-center gap-1">
-                            <button
-                              onClick={() => {
-                                setEditingCarrier(carrier);
-                                setShowTripForm(true);
-                              }}
-                              className="text-gray-600 hover:text-gray-800"
-                              title="Edit Trip"
-                            >
-                              <Edit className="w-3.5 h-3.5" />
-                            </button>
-                            {isSuperAdmin && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteCarrier(carrier._id, carrier.tripNumber || carrier.name);
-                                }}
-                                className="text-red-600 hover:text-red-800"
-                                title="Delete Trip (Super Admin Only)"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                            {(carrier.type === 'trip' || (!carrier.type && carrier.tripNumber)) && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  handleToggleActive(e, carrier._id, carrier.isActive);
-                                }}
-                                disabled={togglingCarriers.has(carrier._id.toString())}
-                                className={`px-1.5 py-0.5 text-[9px] font-medium rounded border transition-colors ${
-                                  (carrier.isActive === false) 
-                                    ? 'bg-red-100 text-red-700 border-red-300 hover:bg-red-200' 
-                                    : 'bg-green-100 text-green-700 border-green-300 hover:bg-green-200'
-                                } ${togglingCarriers.has(carrier._id.toString()) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                title={`Click to mark as ${(carrier.isActive === false) ? 'Active' : 'Inactive'}`}
-                              >
-                                {togglingCarriers.has(carrier._id.toString()) ? '...' : ((carrier.isActive === false) ? 'Inactive' : 'Active')}
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-
-                      {/* Expanded Cars Table */}
-                      {isExpanded && (
-                        <tr>
-                          <td colSpan={isSuperAdmin ? 14 : 13} className="px-0 py-0 bg-gray-50">
-                            <div className="px-2 py-2">
-                              <div className="flex justify-between items-center mb-2">
-                                <h4 className="text-xs font-semibold text-gray-700">
-                                  Cars ({cars.length})
-                                </h4>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setCarFormCarrier(carrier);
-                                    setShowCarForm({ ...showCarForm, [carrierIdStr]: true });
-                                  }}
-                                  className="px-2 py-0.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1"
-                                >
-                                  <Plus className="w-3 h-3" />
-                                  Add
-                                </button>
-                              </div>
-
-                              {cars.length === 0 ? (
-                                <p className="text-xs text-gray-500 text-center py-3">
-                                  No cars in this trip. Click "Add" to get started.
-                                </p>
-                              ) : (
-                                <div className="overflow-x-auto">
-                                  <table className="min-w-full text-xs">
-                                    <thead className="bg-white">
-                                      <tr>
-                                        <th className="px-1.5 py-1 text-left font-medium text-gray-600 text-[10px]">
-                                          #
-                                        </th>
-                                        <th className="px-1.5 py-1 text-left font-medium text-gray-600 text-[10px]">
-                                          DATE
-                                        </th>
-                                        <th className="px-1.5 py-1 text-left font-medium text-gray-600 text-[10px]">
-                                          STOCK
-                                        </th>
-                                        <th className="px-1.5 py-1 text-left font-medium text-gray-600 text-[10px]">
-                                          COMPANY
-                                        </th>
-                                        <th className="px-1.5 py-1 text-left font-medium text-gray-600 text-[10px]">
-                                          NAME
-                                        </th>
-                                        <th className="px-1.5 py-1 text-left font-medium text-gray-600 text-[10px]">
-                                          CHASSIS
-                                        </th>
-                                        <th className="px-1.5 py-1 text-right font-medium text-gray-600 text-[10px]">
-                                          AMOUNT
-                                        </th>
-                                        <th className="px-1.5 py-1 text-center font-medium text-gray-600 text-[10px]">
-                                          ACT
-                                        </th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="bg-white divide-y divide-gray-200">
-                                      {cars.map((car, index) => (
-                                        <tr key={car._id} className="hover:bg-gray-50">
-                                          <td className="px-1.5 py-1 text-gray-600">
-                                            {index + 1}
-                                          </td>
-                                          <td className="px-1.5 py-1 text-gray-600 whitespace-nowrap">
-                                            {formatDate(car.date)}
-                                          </td>
-                                          <td className="px-1.5 py-1 font-medium">
-                                            {car.stockNo}
-                                          </td>
-                                          <td className="px-1.5 py-1">
-                                            {car.companyName}
-                                          </td>
-                                          <td className="px-1.5 py-1">{car.name}</td>
-                                          <td className="px-1.5 py-1 font-mono text-[10px]">
-                                            {car.chassis}
-                                          </td>
-                                          <td className="px-1.5 py-1 text-right text-green-600 font-semibold whitespace-nowrap">
-                                            R{(car.amount || 0).toLocaleString("en-US", {
-                                              minimumFractionDigits: 2,
-                                            })}
-                                          </td>
-                                          <td className="px-1.5 py-1 text-center">
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDeleteCar(car._id, carrierIdStr);
-                                              }}
-                                              className="text-red-600 hover:text-red-800"
-                                              title="Delete"
-                                            >
-                                              <Trash2 className="w-3 h-3" />
-                                            </button>
-                                          </td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                    <tfoot className="bg-gray-100">
-                                      <tr>
-                                        <td
-                                          colSpan="6"
-                                          className="px-1.5 py-1 text-right font-semibold text-xs"
-                                        >
-                                          Total:
-                                        </td>
-                                        <td className="px-1.5 py-1 text-right text-green-600 font-bold text-xs">
-                                          R{carsTotal.toLocaleString("en-US", {
-                                            minimumFractionDigits: 2,
-                                          })}
-                                        </td>
-                                        <td></td>
-                                      </tr>
-                                    </tfoot>
-                                  </table>
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
+                    <CarrierCarsRow
+                      key={carrier._id}
+                      carrier={carrier}
+                      index={index}
+                      pagination={pagination}
+                      isSuperAdmin={isSuperAdmin}
+                      isExpanded={isExpanded}
+                      filters={currentFilters}
+                      selectedTripIds={selectedTripIds}
+                      onToggleTripSelection={(tripId, checked) => {
+                        const newSet = new Set(selectedTripIds);
+                        if (checked) {
+                          newSet.add(tripId);
+                        } else {
+                          newSet.delete(tripId);
+                        }
+                        handleSelectedTripsChange(newSet);
+                      }}
+                      onToggle={toggleTrip}
+                      onEdit={() => {
+                        setEditingCarrier(carrier);
+                        setShowTripForm(true);
+                      }}
+                      onDelete={handleDeleteCarrier}
+                      onToggleActive={handleToggleActive}
+                      onDeleteCar={handleDeleteCar}
+                      onAddCar={() => {
+                        setCarFormCarrier(carrier);
+                        setShowCarForm((prev) => ({ ...prev, [carrierIdStr]: true }));
+                      }}
+                      companies={companies}
+                      users={users}
+                      toggleActiveMutation={toggleActiveMutation}
+                    />
                   );
                 })}
               </tbody>
@@ -633,8 +444,7 @@ export default function SimpleCarriersTable({
           onClose={() => {
             setShowTripForm(false);
             setEditingCarrier(null);
-            // Refresh immediately to show new trip
-            router.refresh();
+            queryClient.invalidateQueries({ queryKey: ["carriers"] });
           }}
         />
       )}
@@ -644,35 +454,321 @@ export default function SimpleCarriersTable({
           carrier={carFormCarrier}
           companies={companies}
           users={users}
-          onClose={async () => {
-            const carrierIdStr = carFormCarrier._id.toString();
-            setShowCarForm({ ...showCarForm, [carrierIdStr]: false });
-            setCarFormCarrier(null);
-            // Refetch cars for this carrier immediately
-            try {
-              const params = new URLSearchParams();
-              const company = searchParams.get("company");
-              const startDate = searchParams.get("startDate");
-              const endDate = searchParams.get("endDate");
-              
-              if (company) params.set("company", company);
-              if (startDate) params.set("startDate", startDate);
-              if (endDate) params.set("endDate", endDate);
-              
-              const queryString = params.toString();
-              const url = `/api/carrier-trips/${carrierIdStr}/cars${queryString ? `?${queryString}` : ""}`;
-              const response = await fetch(url);
-              if (response.ok) {
-                const data = await response.json();
-                setCarrierCars({ ...carrierCars, [carrierIdStr]: data.cars });
-              }
-            } catch (error) {
-              console.error("Error refetching cars:", error);
-            }
-            // Also refresh the page to update carrier counts
-            router.refresh();
-          }}
+          onClose={() => handleCarFormClose(carFormCarrier._id.toString())}
         />
+      )}
+    </>
+  );
+}
+
+// Extracted row component for better organization
+function CarrierCarsRow({
+  carrier,
+  index,
+  pagination,
+  isSuperAdmin,
+  isExpanded,
+  filters,
+  selectedTripIds,
+  onToggleTripSelection,
+  onToggle,
+  onEdit,
+  onDelete,
+  onToggleActive,
+  onDeleteCar,
+  onAddCar,
+  companies,
+  users,
+  toggleActiveMutation,
+}) {
+  const carrierIdStr = carrier._id.toString();
+  const isToggling = toggleActiveMutation.isPending;
+
+  // Fetch cars when expanded using React Query
+  const { data: carsData } = useCarrierCars(carrierIdStr, filters, isExpanded);
+  const cars = carsData?.cars || carrier.cars || [];
+
+  // Derived values with useMemo
+  const carsTotal = useMemo(
+    () => cars.reduce((sum, car) => sum + (car.amount || 0), 0),
+    [cars]
+  );
+
+  const totalAmount = carrier.totalAmount || carsTotal;
+  const totalExpense = carrier.totalExpense || 0;
+  const profit = totalAmount - totalExpense;
+  const rowNumber = pagination
+    ? (pagination.page - 1) * pagination.limit + index + 1
+    : index + 1;
+
+  const isTrip = carrier.type === "trip" || (!carrier.type && carrier.tripNumber);
+  const isSelected = selectedTripIds.has(carrierIdStr);
+
+  return (
+    <>
+      <tr
+        className={`hover:bg-gray-50 ${
+          carrier.isActive === false ? "opacity-60 bg-gray-100" : ""
+        } ${isSelected ? "bg-blue-50" : ""}`}
+      >
+        <td className="px-2 py-1.5 text-center" onClick={(e) => e.stopPropagation()}>
+          {isTrip && (
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={(e) => {
+                e.stopPropagation();
+                onToggleTripSelection(carrierIdStr, e.target.checked);
+              }}
+              className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
+        </td>
+        <td className="px-2 py-1.5 text-gray-400 cursor-pointer" onClick={() => onToggle(carrierIdStr)}>
+          {isExpanded ? (
+            <ChevronDown className="w-3 h-3" />
+          ) : (
+            <ChevronRight className="w-3 h-3" />
+          )}
+        </td>
+        <td className="px-2 py-1.5 text-center text-gray-600 font-medium">
+          {rowNumber}
+        </td>
+        <td className="px-1.5 py-1.5 font-semibold text-gray-900 cursor-pointer" onClick={() => onToggle(carrierIdStr)}>
+          <div className="flex items-center gap-1">
+            {carrier.tripNumber || carrier.name || "N/A"}
+            {carrier.type === "company" && (
+              <span className="text-[8px] text-gray-500 bg-gray-100 px-1 py-0.5 rounded">
+                CO
+              </span>
+            )}
+          </div>
+        </td>
+        {isSuperAdmin && (
+          <td className="px-2 py-1.5 text-gray-600 text-[10px]">
+            {carrier.user?.username ? (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-blue-100 text-blue-800">
+                {carrier.user.username}
+              </span>
+            ) : (
+              <span className="text-gray-400">N/A</span>
+            )}
+          </td>
+        )}
+        <td className="px-2 py-1.5 text-gray-600 whitespace-nowrap">
+          {formatDate(carrier.date)}
+        </td>
+        <td
+          className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[100px] truncate"
+          title={carrier.carrierName || ""}
+        >
+          {carrier.carrierName || "-"}
+        </td>
+        <td
+          className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[100px] truncate"
+          title={carrier.driverName || ""}
+        >
+          {carrier.driverName || "-"}
+        </td>
+        <td className="px-2 py-2 text-gray-700 text-[10px] min-w-[200px] max-w-[250px]">
+          <TruncatedText text={carrier.details} maxLines={2} />
+        </td>
+        <td className="px-2 py-2 text-gray-700 text-[10px] min-w-[200px] max-w-[250px]">
+          <TruncatedText text={carrier.notes} maxLines={2} />
+        </td>
+        <td className="px-2 py-1.5 text-right text-gray-700">
+          {carrier.carCount || 0}
+        </td>
+        <td className="px-2 py-1.5 text-right text-green-600 font-semibold whitespace-nowrap">
+          R{(carrier.totalAmount || 0).toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+          })}
+        </td>
+        <td className="px-2 py-1.5 text-right text-red-600 whitespace-nowrap">
+          R{(carrier.totalExpense || 0).toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+          })}
+        </td>
+        <td
+          className={`px-2 py-1.5 text-right font-semibold whitespace-nowrap ${
+            profit >= 0 ? "text-green-600" : "text-red-600"
+          }`}
+        >
+          R{profit.toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+          })}
+        </td>
+        <td
+          className="px-2 py-1.5 text-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-center gap-1">
+            <button
+              onClick={onEdit}
+              className="text-gray-600 hover:text-gray-800"
+              title="Edit Trip"
+            >
+              <Edit className="w-3.5 h-3.5" />
+            </button>
+            {isSuperAdmin && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(carrier._id, carrier.tripNumber || carrier.name);
+                }}
+                className="text-red-600 hover:text-red-800"
+                title="Delete Trip (Super Admin Only)"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {(carrier.type === "trip" ||
+              (!carrier.type && carrier.tripNumber)) && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  onToggleActive(e, carrier._id, carrier.isActive);
+                }}
+                disabled={isToggling}
+                className={`px-1.5 py-0.5 text-[9px] font-medium rounded border transition-colors ${
+                  carrier.isActive === false
+                    ? "bg-red-100 text-red-700 border-red-300 hover:bg-red-200"
+                    : "bg-green-100 text-green-700 border-green-300 hover:bg-green-200"
+                } ${isToggling ? "opacity-50 cursor-not-allowed" : ""}`}
+                title={`Click to mark as ${
+                  carrier.isActive === false ? "Active" : "Inactive"
+                }`}
+              >
+                {isToggling
+                  ? "..."
+                  : carrier.isActive === false
+                  ? "Inactive"
+                  : "Active"}
+              </button>
+            )}
+          </div>
+        </td>
+      </tr>
+
+      {/* Expanded Cars Table */}
+      {isExpanded && (
+        <tr>
+          <td
+            colSpan={isSuperAdmin ? 14 : 13}
+            className="px-0 py-0 bg-gray-50"
+          >
+            <div className="px-2 py-2">
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="text-xs font-semibold text-gray-700">
+                  Cars ({cars.length})
+                </h4>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAddCar();
+                  }}
+                  className="px-2 py-0.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" />
+                  Add
+                </button>
+              </div>
+
+              {cars.length === 0 ? (
+                <p className="text-xs text-gray-500 text-center py-3">
+                  No cars in this trip. Click "Add" to get started.
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-xs">
+                    <thead className="bg-white">
+                      <tr>
+                        <th className="px-1.5 py-1 text-left font-medium text-gray-600 text-[10px]">
+                          #
+                        </th>
+                        <th className="px-1.5 py-1 text-left font-medium text-gray-600 text-[10px]">
+                          DATE
+                        </th>
+                        <th className="px-1.5 py-1 text-left font-medium text-gray-600 text-[10px]">
+                          STOCK
+                        </th>
+                        <th className="px-1.5 py-1 text-left font-medium text-gray-600 text-[10px]">
+                          COMPANY
+                        </th>
+                        <th className="px-1.5 py-1 text-left font-medium text-gray-600 text-[10px]">
+                          NAME
+                        </th>
+                        <th className="px-1.5 py-1 text-left font-medium text-gray-600 text-[10px]">
+                          CHASSIS
+                        </th>
+                        <th className="px-1.5 py-1 text-right font-medium text-gray-600 text-[10px]">
+                          AMOUNT
+                        </th>
+                        <th className="px-1.5 py-1 text-center font-medium text-gray-600 text-[10px]">
+                          ACT
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {cars.map((car, carIndex) => (
+                        <tr key={car._id} className="hover:bg-gray-50">
+                          <td className="px-1.5 py-1 text-gray-600">
+                            {carIndex + 1}
+                          </td>
+                          <td className="px-1.5 py-1 text-gray-600 whitespace-nowrap">
+                            {formatDate(car.date)}
+                          </td>
+                          <td className="px-1.5 py-1 font-medium">
+                            {car.stockNo}
+                          </td>
+                          <td className="px-1.5 py-1">{car.companyName}</td>
+                          <td className="px-1.5 py-1">{car.name}</td>
+                          <td className="px-1.5 py-1 font-mono text-[10px]">
+                            {car.chassis}
+                          </td>
+                          <td className="px-1.5 py-1 text-right text-green-600 font-semibold whitespace-nowrap">
+                            R{(car.amount || 0).toLocaleString("en-US", {
+                              minimumFractionDigits: 2,
+                            })}
+                          </td>
+                          <td className="px-1.5 py-1 text-center">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteCar(car._id, carrierIdStr);
+                              }}
+                              className="text-red-600 hover:text-red-800"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-gray-100">
+                      <tr>
+                        <td
+                          colSpan="6"
+                          className="px-1.5 py-1 text-right font-semibold text-xs"
+                        >
+                          Total:
+                        </td>
+                        <td className="px-1.5 py-1 text-right text-green-600 font-bold text-xs">
+                          R{carsTotal.toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                          })}
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          </td>
+        </tr>
       )}
     </>
   );

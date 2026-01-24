@@ -5,6 +5,7 @@ const CarrierSchema = new mongoose.Schema({
   tripNumber: {
     type: String,
     trim: true,
+    uppercase: true,
     sparse: true, // Allows multiple nulls but enforces uniqueness for non-null values
   },
   // For company-type carriers (or as display name)
@@ -72,17 +73,19 @@ CarrierSchema.pre("save", function () {
   if (this.name) {
     this.name = this.name.toUpperCase().trim();
   }
+  // Ensure tripNumber is uppercase if provided
+  if (this.tripNumber) {
+    this.tripNumber = this.tripNumber.toUpperCase().trim();
+  }
 });
 
-// Indexes for performance
-CarrierSchema.index({ tripNumber: 1, sparse: true });
-CarrierSchema.index({ name: 1, sparse: true });
-CarrierSchema.index({ date: 1 });
-CarrierSchema.index({ type: 1 });
-CarrierSchema.index({ userId: 1 });
-CarrierSchema.index({ isActive: 1 });
-// Compound unique index: company name should be unique per user
-CarrierSchema.index({ name: 1, userId: 1, type: 1 }, { unique: true, sparse: true, partialFilterExpression: { type: 'company' } });
+// Create compound unique index for tripNumber + userId to ensure uniqueness per user
+CarrierSchema.index({ tripNumber: 1, userId: 1 }, { 
+  unique: true, 
+  sparse: true, 
+  partialFilterExpression: { tripNumber: { $exists: true, $ne: null } }
+});
+
 
 export default mongoose.models.Carrier ||
   mongoose.model("Carrier", CarrierSchema);
