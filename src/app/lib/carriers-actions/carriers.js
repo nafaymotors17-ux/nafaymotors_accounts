@@ -65,6 +65,15 @@ export async function getAllCarriers(searchParams = {}) {
       }
     }
     
+    // Filter by trip number
+    if (searchParams.tripNumber) {
+      const tripNumberFilter = decodeURIComponent(searchParams.tripNumber).trim();
+      if (tripNumberFilter) {
+        const escapedTripNumber = tripNumberFilter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        carrierMatchConditions.push({ tripNumber: { $regex: escapedTripNumber, $options: "i" } });
+      }
+    }
+    
     // Global search across multiple fields
     if (searchParams.globalSearch) {
       const globalSearchTerm = decodeURIComponent(searchParams.globalSearch).trim();
@@ -73,6 +82,7 @@ export async function getAllCarriers(searchParams = {}) {
         const searchRegex = { $regex: escapedSearch, $options: "i" };
         carrierMatchConditions.push({
           $or: [
+            { tripNumber: searchRegex },
             { carrierName: searchRegex },
             { driverName: searchRegex },
             { details: searchRegex },
@@ -275,6 +285,59 @@ export async function getCarrierById(carrierId) {
     };
   } catch (error) {
     return { error: "Failed to fetch carrier" };
+  }
+}
+
+export async function getTripByTripNumber(tripNumber) {
+  await connectDB();
+  try {
+    const session = await getSession();
+    if (!session) {
+      return { error: "Unauthorized" };
+    }
+
+    // Build query - super admin can see all trips, others only their own
+    const query = {
+      tripNumber: tripNumber.trim().toUpperCase(),
+      type: "trip",
+    };
+
+    if (session.role !== "super_admin" && session.userId) {
+      if (mongoose.Types.ObjectId.isValid(session.userId)) {
+        query.userId = new mongoose.Types.ObjectId(session.userId);
+      }
+    }
+
+    const carrier = await Carrier.findOne(query).lean();
+    if (!carrier) {
+      return { error: "Trip not found" };
+    }
+
+    const carQuery = { carrier: carrier._id };
+    
+    // Filter by location if user is not super admin
+    if (session && session.role !== "super_admin" && session.location) {
+      carQuery.location = session.location;
+    }
+    
+    const cars = await Car.find(carQuery)
+      .populate("carrier", "tripNumber name type date totalExpense carrierName driverName details notes")
+      .sort({ date: 1 })
+      .lean();
+
+    const totalAmount = cars.reduce((sum, car) => sum + (car.amount || 0), 0);
+    const profit = totalAmount - (carrier.totalExpense || 0);
+
+    return {
+      success: true,
+      carrier: JSON.parse(JSON.stringify(carrier)),
+      cars: JSON.parse(JSON.stringify(cars)),
+      totalAmount,
+      profit,
+    };
+  } catch (error) {
+    console.error("Error fetching trip by trip number:", error);
+    return { error: "Failed to fetch trip" };
   }
 }
 

@@ -12,6 +12,7 @@ import autoTable from "jspdf-autotable";
 import InvoiceFilters from "./InvoiceFilters";
 import InvoiceViewModal from "./InvoiceViewModal";
 import PaymentFormModal from "./PaymentFormModal";
+import TripDetailsModal from "./TripDetailsModal";
 
 export default function InvoicesTable({
   invoices,
@@ -38,6 +39,7 @@ export default function InvoicesTable({
   const [viewingInvoice, setViewingInvoice] = useState(null);
   const [generatingPDF, setGeneratingPDF] = useState(false);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [selectedTrips, setSelectedTrips] = useState(null);
   const [paymentFormData, setPaymentFormData] = useState({
     amount: "",
     paymentDate: new Date().toISOString().split("T")[0],
@@ -518,18 +520,25 @@ export default function InvoicesTable({
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-600">
                         {invoice.tripNumbers && invoice.tripNumbers.length > 0 ? (
-                          <div className="space-y-1">
-                            {invoice.tripNumbers.map((tripNumber, idx) => (
-                              <div key={idx} className="text-xs">
-                                {tripNumber}
-                                {invoice.tripDates && invoice.tripDates[idx] && (
-                                  <span className="text-gray-500 ml-1">
-                                    ({formatDate(invoice.tripDates[idx])})
-                                  </span>
-                                )}
-                              </div>
-                            ))}
-                          </div>
+                          <button
+                            onClick={() => {
+                              const trips = invoice.tripNumbers.map((tripNumber, idx) => ({
+                                tripNumber,
+                                date: invoice.tripDates && invoice.tripDates[idx] ? invoice.tripDates[idx] : null,
+                              }));
+                              setSelectedTrips(trips);
+                            }}
+                            className="text-left text-xs px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 transition-colors cursor-pointer hover:shadow-sm"
+                            title="Click to view all trips"
+                          >
+                            {invoice.tripNumbers[0]}
+                            {invoice.tripDates && invoice.tripDates[0] && (
+                              <>/{formatDate(invoice.tripDates[0])}</>
+                            )}
+                            {invoice.tripNumbers.length > 1 && (
+                              <span className="ml-1">...</span>
+                            )}
+                          </button>
                         ) : (
                           <span className="text-gray-400 text-xs">-</span>
                         )}
@@ -698,6 +707,17 @@ export default function InvoicesTable({
           onClose={() => setShowPaymentForm(false)}
           onRecordPayment={handleRecordPaymentSubmit}
           isPending={recordPaymentMutation.isPending}
+        />
+      )}
+
+
+      {/* Trip Details Modal */}
+      {selectedTrips && (
+        <TripDetailsModal
+          trips={selectedTrips}
+          onClose={() => {
+            setSelectedTrips(null);
+          }}
         />
       )}
     </>

@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { Download, X } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
 import PaymentTrackingSection from "./PaymentTrackingSection";
+import TripDetailsModal from "./TripDetailsModal";
 
 export default function InvoiceViewModal({
   invoice,
@@ -16,6 +18,8 @@ export default function InvoiceViewModal({
   onRecordPayment,
   onDeletePayment,
 }) {
+  const [selectedTrips, setSelectedTrips] = useState(null);
+
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
       <div className="bg-white w-full max-w-4xl rounded-lg shadow-2xl max-h-[95vh] overflow-y-auto">
@@ -72,20 +76,27 @@ export default function InvoiceViewModal({
 
               {/* Trip Information */}
               {(invoice.tripNumbers && invoice.tripNumbers.length > 0) && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Trip Information</h3>
-                  <div className="space-y-1">
-                    {invoice.tripNumbers.map((tripNumber, index) => (
-                      <div key={index} className="text-sm text-gray-700">
-                        <span className="font-medium">Trip:</span> {tripNumber}
-                        {invoice.tripDates && invoice.tripDates[index] && (
-                          <span className="ml-2 text-gray-600">
-                            • Date: {formatDate(invoice.tripDates[index])}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Trip Information</h3>
+                  <button
+                    onClick={() => {
+                      const trips = invoice.tripNumbers.map((tripNumber, idx) => ({
+                        tripNumber,
+                        date: invoice.tripDates && invoice.tripDates[idx] ? invoice.tripDates[idx] : null,
+                      }));
+                      setSelectedTrips(trips);
+                    }}
+                    className="block w-full text-left text-sm px-3 py-2 bg-white hover:bg-blue-100 text-blue-700 rounded border border-blue-300 transition-colors cursor-pointer hover:shadow-sm"
+                    title="Click to view all trips"
+                  >
+                    {invoice.tripNumbers[0]}
+                    {invoice.tripDates && invoice.tripDates[0] && (
+                      <>/{formatDate(invoice.tripDates[0])}</>
+                    )}
+                    {invoice.tripNumbers.length > 1 && (
+                      <span className="ml-2">...</span>
+                    )}
+                  </button>
                 </div>
               )}
 
@@ -208,6 +219,16 @@ export default function InvoiceViewModal({
           )}
         </div>
       </div>
+
+      {/* Trip Details Modal */}
+      {selectedTrips && (
+        <TripDetailsModal
+          trips={selectedTrips}
+          onClose={() => {
+            setSelectedTrips(null);
+          }}
+        />
+      )}
     </div>
   );
 }
