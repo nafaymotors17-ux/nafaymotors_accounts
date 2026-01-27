@@ -107,6 +107,7 @@ export async function POST(request) {
       transactions: transactionsWithCalculatedBalance,
       openingBalance: openingBalance, // Balance at the start of the period
       closingBalance: currentBalance, // Final balance after all transactions in period
+      currentBalance: account.currentBalance ?? 0, // Current account balance (includes all transactions)
       account: {
         title: account.title,
         slug: account.slug,

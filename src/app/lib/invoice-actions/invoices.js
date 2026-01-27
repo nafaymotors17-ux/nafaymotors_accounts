@@ -289,7 +289,6 @@ export async function recordPayment(invoiceId, paymentData) {
     const newPayment = {
       amount: paymentAmount,
       paymentDate: paymentData.paymentDate ? new Date(paymentData.paymentDate) : new Date(),
-      paymentMethod: "Cash", // Default payment method
       notes: paymentData.notes || "", // Notes from form
       recordedBy: session.userId,
     };

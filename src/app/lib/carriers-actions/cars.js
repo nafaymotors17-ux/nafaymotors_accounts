@@ -82,9 +82,10 @@ export async function getFilteredCars(filters = {}) {
       query.date = { $lte: endDate };
     }
 
-    // Company filter - search by companyName
+    // Company filter - search by companyName (exact match only)
     if (filters.company) {
-      query.companyName = { $regex: filters.company, $options: "i" };
+      const escapedCompany = filters.company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.companyName = { $regex: `^${escapedCompany}$`, $options: "i" };
     }
 
     // Carrier filter
@@ -265,17 +266,20 @@ export async function getCarsByCompany(filters = {}) {
       // If companyId is provided, it's actually a carrier ID (company-type)
       query.carrier = companyId;
     } else if (companyName) {
-      // Search for company-type carrier by name
+      // Escape special regex characters for exact match
+      const escapedCompanyName = companyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      
+      // Search for company-type carrier by name (exact match)
       const companyCarrier = await Carrier.findOne({
-        name: { $regex: companyName, $options: "i" },
+        name: { $regex: `^${escapedCompanyName}$`, $options: "i" },
         type: 'company'
       });
       if (companyCarrier) {
-        // For company invoices, we want all cars with this company name
-        query.companyName = { $regex: companyName, $options: "i" };
+        // For company invoices, we want all cars with this company name (exact match)
+        query.companyName = { $regex: `^${escapedCompanyName}$`, $options: "i" };
       } else {
-        // Fallback to companyName field
-        query.companyName = { $regex: companyName, $options: "i" };
+        // Fallback to companyName field (exact match)
+        query.companyName = { $regex: `^${escapedCompanyName}$`, $options: "i" };
       }
     } else {
       return { error: "Company ID or name is required" };

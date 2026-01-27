@@ -48,6 +48,7 @@ export default function UserManagement({ users }) {
     setEditingUser({
       _id: user._id,
       username: user.username || "",
+      name: user.name || "",
       address: user.address || "",
       role: user.role,
     });
@@ -123,6 +124,23 @@ export default function UserManagement({ users }) {
                     defaultValue={editingUser?.username || ""}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     disabled={isSubmitting}
+                    placeholder="Used for login"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Name *
+                  </label>
+                  <input
+                    type="text"
+                    name="name"
+                    required
+                    key={`name-${editingUser?._id || "new"}`}
+                    defaultValue={editingUser?.name || ""}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    disabled={isSubmitting}
+                    placeholder="Used for invoice generation"
                   />
                 </div>
 
@@ -194,6 +212,9 @@ export default function UserManagement({ users }) {
                 Username
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                Name
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                 Role
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
@@ -209,6 +230,9 @@ export default function UserManagement({ users }) {
               <tr key={user._id}>
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                   {user.username}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  {user.name || <span className="text-gray-400">No name</span>}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span

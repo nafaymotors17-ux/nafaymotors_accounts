@@ -720,9 +720,10 @@ export async function getFilteredCarriersWithCars(searchParams = {}) {
       }
     }
     
-    // Company filter - search by companyName
+    // Company filter - search by companyName (exact match only)
     if (searchParams.company) {
-      carQuery.companyName = { $regex: searchParams.company, $options: "i" };
+      const escapedCompany = searchParams.company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      carQuery.companyName = { $regex: `^${escapedCompany}$`, $options: "i" };
     }
 
     // Date filter for cars

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { createMultipleCars } from "@/app/lib/carriers-actions/cars";
 import { useUser } from "@/app/components/UserContext";
-import { X, Plus, Trash2 } from "lucide-react";
+import { X, Plus, Trash2, FileSpreadsheet, Upload } from "lucide-react";
+import * as XLSX from "xlsx";
 
 export default function CarForm({ carrier, companies, users = [], car, onClose }) {
 
@@ -11,6 +12,8 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [selectedUserId, setSelectedUserId] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef(null);
   
   const [carRows, setCarRows] = useState([
     {
@@ -46,6 +49,213 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
     const newRows = [...carRows];
     newRows[index][field] = value;
     setCarRows(newRows);
+  };
+
+  // Function to find company by name (exact match only, case-insensitive)
+  const findCompanyByName = (companyName) => {
+    if (!companyName) return null;
+    
+    const searchName = companyName.trim().toUpperCase();
+    
+    // Only exact match (case-insensitive)
+    const company = companies.find(
+      (c) => c.name.toUpperCase().trim() === searchName
+    );
+    
+    return company;
+  };
+
+  // Parse Excel file and import cars
+  const handleExcelImport = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    setError(null);
+
+    try {
+      // Read Excel file
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: "array" });
+      
+      // Get first sheet
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      
+      // Convert to JSON
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+        header: 1,
+        defval: "",
+        raw: false
+      });
+
+      if (jsonData.length < 2) {
+        setError("Excel file must have at least a header row and one data row");
+        setIsImporting(false);
+        return;
+      }
+
+      // Find header row (look for common column names)
+      let headerRowIndex = 0;
+      const headerRow = jsonData[0];
+      
+      // Map column indices
+      const getColumnIndex = (possibleNames) => {
+        for (let i = 0; i < headerRow.length; i++) {
+          const cellValue = String(headerRow[i] || "").toUpperCase().trim();
+          for (const name of possibleNames) {
+            if (cellValue === name.toUpperCase() || cellValue.includes(name.toUpperCase())) {
+              return i;
+            }
+          }
+        }
+        return -1;
+      };
+
+      const dateCol = getColumnIndex(["DATE", "Date", "date"]);
+      const stockNoCol = getColumnIndex(["STOCK NO", "STOCK NO.", "Stock No", "Stock Number", "STOCK"]);
+      const companyCol = getColumnIndex(["COMPANY", "Company", "company"]);
+      const nameCol = getColumnIndex(["NAME", "Name", "name", "CAR NAME", "Car Name"]);
+      const chassisCol = getColumnIndex(["CHASSIS", "Chassis", "chassis", "CHASSIS NO", "Chassis No"]);
+      const amountCol = getColumnIndex(["AMOUNT", "Amount", "amount", "AMOUNT (R)", "Amount (R)"]);
+
+      // Validate required columns
+      if (stockNoCol === -1 || companyCol === -1 || nameCol === -1 || chassisCol === -1) {
+        setError("Excel file must contain columns: STOCK NO, COMPANY, NAME, and CHASSIS");
+        setIsImporting(false);
+        return;
+      }
+
+      // Parse data rows (skip header row)
+      const importedRows = [];
+      const errors = [];
+      
+      for (let i = 1; i < jsonData.length; i++) {
+        const row = jsonData[i];
+        
+        // Skip empty rows
+        if (row.every(cell => !cell || String(cell).trim() === "")) continue;
+
+        const stockNo = String(row[stockNoCol] || "").trim();
+        const companyName = String(row[companyCol] || "").trim();
+        const name = String(row[nameCol] || "").trim();
+        const chassis = String(row[chassisCol] || "").trim();
+        const amount = row[amountCol] !== undefined ? String(row[amountCol] || "0").trim() : "0";
+        
+        // Parse date
+        let dateValue = "";
+        if (dateCol !== -1 && row[dateCol]) {
+          const dateCell = row[dateCol];
+          // Handle Excel date serial number or date string
+          if (typeof dateCell === 'number') {
+            // Excel date serial number
+            const excelEpoch = new Date(1899, 11, 30);
+            const date = new Date(excelEpoch.getTime() + dateCell * 24 * 60 * 60 * 1000);
+            dateValue = date.toISOString().split("T")[0];
+          } else {
+            // Try to parse as date string
+            const dateStr = String(dateCell).trim();
+            
+            // Try MM/DD/YYYY format first (common US format)
+            if (dateStr.includes("/")) {
+              const parts = dateStr.split("/").map(p => p.trim());
+              if (parts.length === 3) {
+                let month = parts[0];
+                let day = parts[1];
+                let year = parts[2];
+                
+                // Handle 2-digit year
+                if (year.length === 2) {
+                  year = `20${year}`;
+                }
+                
+                // Pad with zeros
+                month = month.padStart(2, "0");
+                day = day.padStart(2, "0");
+                
+                // Try MM/DD/YYYY first (US format)
+                const usDate = new Date(`${year}-${month}-${day}`);
+                if (!isNaN(usDate.getTime()) && usDate.getFullYear() == parseInt(year)) {
+                  dateValue = usDate.toISOString().split("T")[0];
+                } else {
+                  // Try DD/MM/YYYY (European format)
+                  const euDate = new Date(`${year}-${day}-${month}`);
+                  if (!isNaN(euDate.getTime()) && euDate.getFullYear() == parseInt(year)) {
+                    dateValue = euDate.toISOString().split("T")[0];
+                  }
+                }
+              }
+            } else {
+              // Try standard date parsing
+              const parsedDate = new Date(dateCell);
+              if (!isNaN(parsedDate.getTime())) {
+                dateValue = parsedDate.toISOString().split("T")[0];
+              }
+            }
+          }
+        }
+        
+        // Validate required fields
+        if (!stockNo || !companyName || !name || !chassis) {
+          errors.push(`Row ${i + 1}: Missing required fields (STOCK NO, COMPANY, NAME, or CHASSIS)`);
+          continue;
+        }
+
+        // Find company
+        const company = findCompanyByName(companyName);
+        if (!company) {
+          errors.push(`Row ${i + 1}: Company "${companyName}" not found. Please ensure the company exists in the system.`);
+          continue;
+        }
+
+        // Parse amount
+        let amountValue = 0;
+        if (amount) {
+          // Remove currency symbols and commas
+          const cleanAmount = amount.replace(/[R$,\s]/g, "");
+          amountValue = parseFloat(cleanAmount) || 0;
+        }
+
+        // Use today's date if no date provided
+        if (!dateValue) {
+          dateValue = new Date().toISOString().split("T")[0];
+        }
+
+        importedRows.push({
+          stockNo,
+          name,
+          chassis,
+          amount: amountValue.toString(),
+          companyId: company._id,
+          date: dateValue,
+        });
+      }
+
+      if (importedRows.length === 0) {
+        setError("No valid rows found in Excel file. " + (errors.length > 0 ? errors.slice(0, 3).join("; ") : ""));
+        setIsImporting(false);
+        return;
+      }
+
+      // Show warnings if any
+      if (errors.length > 0) {
+        const warningMsg = `Imported ${importedRows.length} row(s). ${errors.length} row(s) had errors:\n${errors.slice(0, 5).join("\n")}${errors.length > 5 ? `\n... and ${errors.length - 5} more` : ""}`;
+        alert(warningMsg);
+      }
+
+      // Set imported rows
+      setCarRows(importedRows);
+      
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    } catch (err) {
+      console.error("Excel import error:", err);
+      setError(`Failed to import Excel file: ${err.message}`);
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   async function handleSubmit(event) {
@@ -122,13 +332,41 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
 
           <div className="space-y-4">
               <div className="flex justify-between items-center">
-                <div>
-               
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    onChange={handleExcelImport}
+                    className="hidden"
+                    id="excel-import-input"
+                    disabled={isSubmitting || isImporting}
+                  />
+                  <label
+                    htmlFor="excel-import-input"
+                    className={`px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-1 cursor-pointer ${(isSubmitting || isImporting) ? "opacity-50 cursor-not-allowed" : ""}`}
+                  >
+                    {isImporting ? (
+                      <>
+                        <Upload className="w-4 h-4 animate-pulse" />
+                        Importing...
+                      </>
+                    ) : (
+                      <>
+                        <FileSpreadsheet className="w-4 h-4" />
+                        Import Excel
+                      </>
+                    )}
+                  </label>
+                  <span className="text-xs text-gray-500">
+                    Format: NO, DATE, STOCK NO, COMPANY, NAME, CHASSIS, AMOUNT
+                  </span>
                 </div>
                 <button
                   type="button"
                   onClick={addCarRow}
                   className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center gap-1"
+                  disabled={isSubmitting || isImporting}
                 >
                   <Plus className="w-4 h-4" />
                   Add Row

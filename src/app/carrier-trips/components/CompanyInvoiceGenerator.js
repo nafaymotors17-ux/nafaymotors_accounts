@@ -79,9 +79,9 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
         const result = await getCurrentUser();
         if (result.success && result.user) {
           setCurrentUser(result.user);
-          // Set sender company name from username (for backend, not shown in UI)
-          const username = result.user.username || "";
-          setSenderCompanyName(username.charAt(0).toUpperCase() + username.slice(1));
+          // Set sender company name from name field (for backend, not shown in UI)
+          const userName = result.user.name || result.user.username || "";
+          setSenderCompanyName(userName);
           // Set address (for backend, not shown in UI)
           setSenderCompanyAddress(result.user.address || "");
         }
@@ -162,7 +162,7 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
     }
 
     // Use default sender company name if not set (from user)
-    const finalSenderName = senderCompanyName.trim() || (currentUser?.username ? currentUser.username.charAt(0).toUpperCase() + currentUser.username.slice(1) : "COMPANY");
+    const finalSenderName = senderCompanyName.trim() || (currentUser?.name || currentUser?.username || "COMPANY");
 
     try {
       const invoiceData = {
@@ -196,7 +196,7 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
     }
 
     // Use default sender company name if not set
-    const finalSenderName = senderCompanyName.trim() || (currentUser?.username ? currentUser.username.charAt(0).toUpperCase() + currentUser.username.slice(1) : "COMPANY");
+    const finalSenderName = senderCompanyName.trim() || (currentUser?.name || currentUser?.username || "COMPANY");
 
     // Save invoice first
     setIsSaving(true);
@@ -218,15 +218,22 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
       const pageWidth = doc.internal.pageSize.getWidth();
       let currentY = 20;
 
-      // Header - Trip Numbers instead of sender company
-      if (tripNumbers.length > 0) {
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(14);
-        doc.setTextColor(31, 41, 55);
-        const tripText = tripNumbers.length === 1 
-          ? `TRIP: ${tripNumbers[0]}`
-          : `TRIPS: ${tripNumbers.join(", ")}`;
-        doc.text(tripText, margin, currentY);
+      // Header - Sender Company
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.setTextColor(31, 41, 55);
+      doc.text(
+        senderCompanyName.toUpperCase() || "COMPANY NAME",
+        margin,
+        currentY
+      );
+      currentY += 6;
+
+      if (senderCompanyAddress) {
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        doc.text(senderCompanyAddress, margin, currentY);
         currentY += 6;
       }
 
@@ -393,7 +400,7 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
     }
 
     // Use default sender company name if not set
-    const finalSenderName = senderCompanyName.trim() || (currentUser?.username ? currentUser.username.charAt(0).toUpperCase() + currentUser.username.slice(1) : "COMPANY");
+    const finalSenderName = senderCompanyName.trim() || (currentUser?.name || currentUser?.username || "COMPANY");
 
     // Save invoice first
     setIsSaving(true);
@@ -413,9 +420,8 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
       const wb = XLSX.utils.book_new();
 
       const invoiceData = [
-        tripNumbers.length > 0 
-          ? [tripNumbers.length === 1 ? `TRIP: ${tripNumbers[0]}` : `TRIPS: ${tripNumbers.join(", ")}`]
-          : ["INVOICE"],
+        [senderCompanyName.toUpperCase() || "COMPANY NAME"],
+        senderCompanyAddress ? [senderCompanyAddress] : [],
         [],
         ["TAX INVOICE"],
         [],

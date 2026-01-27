@@ -43,7 +43,6 @@ export default function InvoicesTable({
   const [paymentFormData, setPaymentFormData] = useState({
     amount: "",
     paymentDate: new Date().toISOString().split("T")[0],
-    paymentMethod: "Cash",
     notes: "",
   });
 
@@ -94,7 +93,6 @@ export default function InvoicesTable({
       setPaymentFormData({
         amount: "",
         paymentDate: new Date().toISOString().split("T")[0],
-        paymentMethod: "Cash",
         notes: "",
       });
     },

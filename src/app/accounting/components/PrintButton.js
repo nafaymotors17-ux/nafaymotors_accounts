@@ -24,8 +24,12 @@ export default function PrintButton({ account, filters }) {
     doc.setFontSize(10);
     doc.setTextColor(100);
     doc.text(`Account Statement: ${account.slug}`, margin, 26);
+    const formattedBalance = (totalCurrentBalance ?? 0).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
     doc.text(
-      `Current Balance: ${account.currencySymbol}${totalCurrentBalance}`,
+      `Current Balance: ${account.currencySymbol}${formattedBalance}`,
       pageWidth - margin,
       yPosition,
       { align: "right" }

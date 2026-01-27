@@ -11,7 +11,7 @@ export async function getAllUsers() {
     await requireSuperAdmin(); // Only super admin can view users
     
     const users = await User.find({})
-      .select("_id username role address createdAt updatedAt")
+      .select("_id username name role address createdAt updatedAt")
       .sort({ createdAt: -1 })
       .lean();
 
@@ -44,7 +44,7 @@ export async function getAllUsersForSelection() {
     }
     
     const users = await User.find({})
-      .select("_id username role address")
+      .select("_id username name role address")
       .sort({ username: 1 })
       .lean();
 
@@ -71,7 +71,7 @@ export async function getCurrentUser() {
     }
 
     const user = await User.findById(session.userId)
-      .select("_id username role address")
+      .select("_id username name role address")
       .lean();
 
     if (!user) {
@@ -94,6 +94,7 @@ export async function createUser(formData) {
     await requireSuperAdmin(); // Only super admin can create users
 
     const username = formData.get("username")?.trim().toLowerCase();
+    const name = formData.get("name")?.trim() || "";
     const password = formData.get("password");
     const address = formData.get("address")?.trim() || "";
 
@@ -109,6 +110,7 @@ export async function createUser(formData) {
 
     const user = new User({
       username,
+      name,
       password, // Plain text
       role: "user",
       address,
@@ -122,6 +124,7 @@ export async function createUser(formData) {
       user: {
         id: user._id.toString(),
         username: user.username,
+        name: user.name,
         role: user.role,
         address: user.address,
       },
@@ -139,6 +142,7 @@ export async function updateUser(userId, formData) {
     await requireSuperAdmin();
 
     const username = formData.get("username")?.trim().toLowerCase();
+    const name = formData.get("name")?.trim() || "";
     const password = formData.get("password");
     const address = formData.get("address")?.trim() || "";
 
@@ -157,6 +161,7 @@ export async function updateUser(userId, formData) {
 
     const updateData = {
       username,
+      name,
       address,
     };
 
@@ -184,6 +189,7 @@ export async function updateUser(userId, formData) {
       user: {
         id: updatedUser._id.toString(),
         username: updatedUser.username,
+        name: updatedUser.name,
         role: updatedUser.role,
         address: updatedUser.address || "",
       },

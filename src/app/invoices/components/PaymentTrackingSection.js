@@ -76,13 +76,10 @@ export default function PaymentTrackingSection({
                       Date
                     </th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
-                      Method
+                      Notes
                     </th>
                     <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">
                       Amount
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
-                      Notes
                     </th>
                     <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">
                       Action
@@ -95,16 +92,13 @@ export default function PaymentTrackingSection({
                       <td className="px-3 py-2 text-gray-600">
                         {formatDate(payment.paymentDate)}
                       </td>
-                      <td className="px-3 py-2 text-gray-600">
-                        {payment.paymentMethod || "Cash"}
+                      <td className="px-3 py-2 text-gray-600 text-xs">
+                        {payment.notes || "-"}
                       </td>
                       <td className="px-3 py-2 text-right font-semibold text-green-600">
                         R{(payment.amount || 0).toLocaleString("en-US", {
                           minimumFractionDigits: 2,
                         })}
-                      </td>
-                      <td className="px-3 py-2 text-gray-600 text-xs">
-                        {payment.notes || "-"}
                       </td>
                       <td className="px-3 py-2 text-center">
                         <button
