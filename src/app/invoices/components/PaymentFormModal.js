@@ -13,6 +13,8 @@ export default function PaymentFormModal({
   const [formData, setFormData] = useState({
     amount: "",
     paymentDate: new Date().toISOString().split("T")[0],
+    paymentMethod: "Cash",
+    accountInfo: "",
     notes: "",
   });
 
@@ -26,13 +28,22 @@ export default function PaymentFormModal({
     }
 
     const paymentAmount = parseFloat(formData.amount);
-    if (paymentAmount > paymentInfo.remainingBalance) {
-      alert(
-        `Payment amount cannot exceed remaining balance of R${paymentInfo.remainingBalance.toLocaleString("en-US", {
-          minimumFractionDigits: 2,
-        })}`
-      );
-      return;
+    const remainingBalance = paymentInfo?.remainingBalance || 0;
+    
+    // Allow overpayments - excess will be added to company credit
+    if (paymentAmount > remainingBalance) {
+      const excess = paymentAmount - remainingBalance;
+      const confirmMessage = `Payment amount (R${paymentAmount.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+      })}) exceeds remaining balance (R${remainingBalance.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+      })}).\n\nExcess amount of R${excess.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+      })} will be added to company credit for future invoices.\n\nContinue?`;
+      
+      if (!confirm(confirmMessage)) {
+        return;
+      }
     }
 
     onRecordPayment(formData);
@@ -60,7 +71,6 @@ export default function PaymentFormModal({
               type="number"
               step="0.01"
               min="0.01"
-              max={paymentInfo?.remainingBalance || 0}
               value={formData.amount}
               onChange={(e) =>
                 setFormData({ ...formData, amount: e.target.value })
@@ -74,6 +84,9 @@ export default function PaymentFormModal({
               {paymentInfo?.remainingBalance.toLocaleString("en-US", {
                 minimumFractionDigits: 2,
               }) || "0.00"}
+            </p>
+            <p className="text-xs text-blue-600 mt-1">
+              💡 You can pay more than the remaining balance. Excess amount will be added to company credit for future invoices.
             </p>
           </div>
 
@@ -91,6 +104,46 @@ export default function PaymentFormModal({
               required
             />
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Payment Type *
+            </label>
+            <select
+              value={formData.paymentMethod}
+              onChange={(e) => {
+                const value = e.target.value;
+                setFormData((prev) => ({
+                  ...prev,
+                  paymentMethod: value,
+                  accountInfo: value === "Cash" ? "" : prev.accountInfo,
+                }));
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
+              required
+            >
+              <option value="Cash">Cash</option>
+              <option value="Bank">Bank</option>
+            </select>
+          </div>
+
+          {formData.paymentMethod === "Bank" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Bank Account Info *
+              </label>
+              <input
+                type="text"
+                value={formData.accountInfo}
+                onChange={(e) =>
+                  setFormData({ ...formData, accountInfo: e.target.value })
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Account name / number / title"
+                required={formData.paymentMethod === "Bank"}
+              />
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">

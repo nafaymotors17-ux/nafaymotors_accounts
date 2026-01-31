@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Download, X } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Download, X, Edit2 } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
+import { setCompanyCredit } from "@/app/lib/invoice-actions/company-balances";
 import PaymentTrackingSection from "./PaymentTrackingSection";
 import TripDetailsModal from "./TripDetailsModal";
 
@@ -13,12 +15,48 @@ export default function InvoiceViewModal({
   generatingPDF,
   paymentInfo,
   getPaymentStatusBadge,
+  companyBalance,
+  loadingCompanyBalance,
   onClose,
   onDownloadPDF,
   onRecordPayment,
   onDeletePayment,
 }) {
   const [selectedTrips, setSelectedTrips] = useState(null);
+  const [editingCredit, setEditingCredit] = useState(false);
+  const [newCreditBalance, setNewCreditBalance] = useState("");
+  const queryClient = useQueryClient();
+
+  const updateCreditMutation = useMutation({
+    mutationFn: ({ companyName, newBalance }) => setCompanyCredit(companyName, parseFloat(newBalance) || 0),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["companyBalance", invoice.clientCompanyName] });
+      queryClient.invalidateQueries({ queryKey: ["company-balances"] });
+      setEditingCredit(false);
+      setNewCreditBalance("");
+    },
+  });
+
+  const handleEditCredit = () => {
+    if (companyBalance?.success) {
+      setNewCreditBalance((companyBalance.creditBalance || 0).toString());
+      setEditingCredit(true);
+    }
+  };
+
+  const handleUpdateCredit = (e) => {
+    e.preventDefault();
+    const balance = parseFloat(newCreditBalance);
+    if (isNaN(balance)) {
+      alert("Please enter a valid number");
+      return;
+    }
+
+    updateCreditMutation.mutate({
+      companyName: invoice.clientCompanyName,
+      newBalance: balance,
+    });
+  };
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
@@ -71,6 +109,37 @@ export default function InvoiceViewModal({
                 <div>
                   <h3 className="text-sm font-semibold text-gray-700 mb-2">Client</h3>
                   <p className="text-sm text-gray-900">{invoice.clientCompanyName}</p>
+                  {loadingCompanyBalance ? (
+                    <p className="text-xs text-gray-500 mt-2">Loading balance...</p>
+                  ) : companyBalance?.success ? (
+                    <div className="mt-2 space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-600">Credit Balance:</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-green-600">
+                            R{(companyBalance.creditBalance || 0).toLocaleString("en-US", {
+                              minimumFractionDigits: 2,
+                            })}
+                          </span>
+                          <button
+                            onClick={handleEditCredit}
+                            className="text-blue-600 hover:text-blue-800"
+                            title="Edit Credit Balance"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-600">Due Balance:</span>
+                        <span className="font-semibold text-blue-600">
+                          R{(companyBalance.dueBalance || 0).toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                          })}
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -228,6 +297,78 @@ export default function InvoiceViewModal({
             setSelectedTrips(null);
           }}
         />
+      )}
+
+      {/* Edit Credit Balance Modal */}
+      {editingCredit && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-gray-800">
+                Update Credit Balance
+              </h3>
+              <button
+                onClick={() => {
+                  setEditingCredit(false);
+                  setNewCreditBalance("");
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-2">
+                Company: <span className="font-semibold">{invoice.clientCompanyName}</span>
+              </p>
+              <p className="text-xs text-gray-500 mb-4">
+                Current Credit Balance: R
+                {(companyBalance?.creditBalance || 0).toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                })}
+              </p>
+            </div>
+
+            <form onSubmit={handleUpdateCredit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  New Credit Balance *
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newCreditBalance}
+                  onChange={(e) => setNewCreditBalance(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="0.00"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={updateCreditMutation.isPending}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {updateCreditMutation.isPending ? "Updating..." : "Update Balance"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingCredit(false);
+                    setNewCreditBalance("");
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

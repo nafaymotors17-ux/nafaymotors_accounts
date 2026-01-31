@@ -18,6 +18,16 @@ const CompanySchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
+  // Credit balance (positive = company has credit, negative = company owes)
+  creditBalance: {
+    type: Number,
+    default: 0,
+  },
+  // Due balance (amount the company owes from invoices)
+  dueBalance: {
+    type: Number,
+    default: 0,
+  },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -38,8 +48,8 @@ CompanySchema.pre("save", function () {
 
 // Index for userId filtering
 CompanySchema.index({ userId: 1 });
-// Compound unique index: company name should be unique per user
-CompanySchema.index({ name: 1, userId: 1 }, { unique: true });
+// Company name should be unique globally across entire database
+CompanySchema.index({ name: 1 }, { unique: true });
 
 export default mongoose.models.Company ||
   mongoose.model("Company", CompanySchema);

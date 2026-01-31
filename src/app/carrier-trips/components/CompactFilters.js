@@ -181,8 +181,9 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
               name="tripNumber"
               key={`tripNumber-${selectedTripNumber}`}
               defaultValue={selectedTripNumber}
-              placeholder="Search trip..."
+              placeholder="Trip # (comma-separated)"
               className="w-32 px-1.5 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              title="Enter trip numbers separated by commas (e.g., TRIP-001, TRIP-002, TRIP-003)"
             />
           </div>
 

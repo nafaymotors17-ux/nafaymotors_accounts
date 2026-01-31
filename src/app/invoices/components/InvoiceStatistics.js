@@ -8,7 +8,6 @@ export default function InvoiceStatistics({ invoices, getPaymentInfo }) {
     let paidCount = 0;
     let unpaidCount = 0;
     let partialCount = 0;
-    let overdueCount = 0;
     let totalAmount = 0;
     let totalPaid = 0;
     let outstandingBalance = 0;
@@ -23,7 +22,6 @@ export default function InvoiceStatistics({ invoices, getPaymentInfo }) {
       if (paymentInfo.paymentStatus === "paid") paidCount++;
       else if (paymentInfo.paymentStatus === "unpaid") unpaidCount++;
       else if (paymentInfo.paymentStatus === "partial") partialCount++;
-      else if (paymentInfo.paymentStatus === "overdue") overdueCount++;
     });
 
     return {
@@ -31,7 +29,6 @@ export default function InvoiceStatistics({ invoices, getPaymentInfo }) {
       paidCount,
       unpaidCount,
       partialCount,
-      overdueCount,
       totalAmount,
       totalPaid,
       outstandingBalance,
@@ -47,7 +44,6 @@ export default function InvoiceStatistics({ invoices, getPaymentInfo }) {
           <span className="text-green-600">Paid: {statistics.paidCount}</span>
           <span className="text-yellow-600">Partial: {statistics.partialCount}</span>
           <span className="text-red-600">Unpaid: {statistics.unpaidCount}</span>
-          <span className="text-red-800">Overdue: {statistics.overdueCount}</span>
         </div>
       </div>
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
@@ -65,7 +61,7 @@ export default function InvoiceStatistics({ invoices, getPaymentInfo }) {
           R{statistics.outstandingBalance.toLocaleString("en-US", { minimumFractionDigits: 2 })}
         </p>
         <p className="text-xs text-gray-500 mt-1">
-          {statistics.unpaidCount + statistics.partialCount + statistics.overdueCount} invoices
+          {statistics.unpaidCount + statistics.partialCount} invoices
         </p>
       </div>
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">

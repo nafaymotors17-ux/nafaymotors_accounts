@@ -63,13 +63,11 @@ export default function CompanyBreakdownTab() {
     if (paymentStatusFilter) {
       filtered = filtered.filter((company) => {
         if (paymentStatusFilter === "paid") {
-          return company.paidInvoices > 0 && company.unpaidInvoices === 0 && company.partialInvoices === 0 && company.overdueInvoices === 0;
+          return company.paidInvoices > 0 && company.unpaidInvoices === 0 && company.partialInvoices === 0;
         } else if (paymentStatusFilter === "unpaid") {
           return company.unpaidInvoices > 0;
         } else if (paymentStatusFilter === "partial") {
           return company.partialInvoices > 0;
-        } else if (paymentStatusFilter === "overdue") {
-          return company.overdueInvoices > 0;
         }
         return true;
       });
@@ -113,7 +111,6 @@ export default function CompanyBreakdownTab() {
         paidInvoices: 0,
         unpaidInvoices: 0,
         partialInvoices: 0,
-        overdueInvoices: 0,
       };
     }
     // If filters are active, calculate from filtered results
@@ -127,7 +124,6 @@ export default function CompanyBreakdownTab() {
         paidInvoices: acc.paidInvoices + company.paidInvoices,
         unpaidInvoices: acc.unpaidInvoices + company.unpaidInvoices,
         partialInvoices: acc.partialInvoices + company.partialInvoices,
-        overdueInvoices: acc.overdueInvoices + company.overdueInvoices,
       }),
       {
         totalCompanies: 0,
@@ -138,7 +134,6 @@ export default function CompanyBreakdownTab() {
         paidInvoices: 0,
         unpaidInvoices: 0,
         partialInvoices: 0,
-        overdueInvoices: 0,
       }
     );
   }, [filteredCompanyBreakdown, breakdownData?.totals, searchQuery, selectedCompany, paymentStatusFilter]);
@@ -150,7 +145,6 @@ export default function CompanyBreakdownTab() {
       "Paid Invoices": company.paidInvoices,
       "Unpaid Invoices": company.unpaidInvoices,
       "Partial Invoices": company.partialInvoices,
-      "Overdue Invoices": company.overdueInvoices,
       "Total Amount": company.totalAmount,
       "Total Paid": company.totalPaid,
       "Outstanding Balance": company.outstandingBalance,
@@ -218,7 +212,7 @@ export default function CompanyBreakdownTab() {
             })}
           </p>
           <p className="text-xs text-gray-500 mt-1">
-            {totals.unpaidInvoices + totals.partialInvoices + totals.overdueInvoices} unpaid invoices
+            {totals.unpaidInvoices + totals.partialInvoices} unpaid invoices
           </p>
         </div>
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
@@ -227,7 +221,6 @@ export default function CompanyBreakdownTab() {
             <span className="text-green-600">Paid: {totals.paidInvoices}</span>
             <span className="text-yellow-600">Partial: {totals.partialInvoices}</span>
             <span className="text-red-600">Unpaid: {totals.unpaidInvoices}</span>
-            <span className="text-red-800">Overdue: {totals.overdueInvoices}</span>
           </div>
         </div>
       </div>
@@ -279,7 +272,6 @@ export default function CompanyBreakdownTab() {
                 <option value="paid">Paid Only</option>
                 <option value="partial">Partial Only</option>
                 <option value="unpaid">Unpaid Only</option>
-                <option value="overdue">Overdue Only</option>
               </select>
             </div>
             {hasActiveFilters && (
@@ -323,9 +315,6 @@ export default function CompanyBreakdownTab() {
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
                   Partial
                 </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                  Overdue
-                </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
                   Total Amount
                 </th>
@@ -340,7 +329,7 @@ export default function CompanyBreakdownTab() {
             <tbody className="bg-white divide-y divide-gray-200">
               {paginatedCompanyBreakdown.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={8} className="px-6 py-8 text-center text-gray-500">
                     No companies found
                   </td>
                 </tr>
@@ -366,11 +355,6 @@ export default function CompanyBreakdownTab() {
                     <td className="px-6 py-4 text-sm text-center">
                       <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs font-medium">
                         {company.partialInvoices}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-center">
-                      <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-medium">
-                        {company.overdueInvoices}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-right font-semibold text-green-600">
@@ -420,11 +404,6 @@ export default function CompanyBreakdownTab() {
                   <td className="px-6 py-3 text-sm text-center">
                     <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs">
                       {totals.partialInvoices}
-                    </span>
-                  </td>
-                  <td className="px-6 py-3 text-sm text-center">
-                    <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs">
-                      {totals.overdueInvoices}
                     </span>
                   </td>
                   <td className="px-6 py-3 text-sm text-right text-green-600">

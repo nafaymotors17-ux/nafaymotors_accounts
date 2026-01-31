@@ -64,5 +64,8 @@ CarSchema.pre("save", function () {
   }
 });
 
+// Indexes for faster queries
+CarSchema.index({ carrier: 1, date: 1 }); // For fetching cars by carrier
+CarSchema.index({ companyName: 1 }); // For filtering by company
 
 export default mongoose.models.Car || mongoose.model("Car", CarSchema);

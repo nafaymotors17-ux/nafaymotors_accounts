@@ -20,8 +20,8 @@ export default function TabNavigation() {
     }
   }, [user, pathname]);
 
-  // Don't show navigation on login page
-  if (pathname === "/login") {
+  // Don't show navigation on login page or trip detail pages
+  if (pathname === "/login" || (pathname?.startsWith("/carrier-trips/") && pathname !== "/carrier-trips")) {
     return null;
   }
 

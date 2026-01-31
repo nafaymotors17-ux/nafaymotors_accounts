@@ -40,6 +40,27 @@ export const modules = [
     icon: '📄',
     enabled: true,
   },
+  {
+    id: 'companies',
+    name: 'Companies',
+    path: '/companies',
+    icon: '🏢',
+    enabled: true,
+  },
+  {
+    id: 'carriers',
+    name: 'Trucks',
+    path: '/carriers',
+    icon: '🚚',
+    enabled: true,
+  },
+  {
+    id: 'drivers',
+    name: 'Drivers',
+    path: '/drivers',
+    icon: '👤',
+    enabled: true,
+  },
   // {
   //   id: 'sales',
   //   name: 'Sales',

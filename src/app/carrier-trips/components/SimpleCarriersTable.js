@@ -380,7 +380,6 @@ export default function SimpleCarriersTable({
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">DATE</th>
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">CARRIER</th>
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">DRIVER</th>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px] min-w-[200px]">DETAILS</th>
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px] min-w-[200px]">NOTES</th>
                   <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">CARS</th>
                   <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">TOTAL</th>
@@ -535,9 +534,23 @@ function CarrierCarsRow({
         <td className="px-2 py-1.5 text-center text-gray-600 font-medium">
           {rowNumber}
         </td>
-        <td className="px-1.5 py-1.5 font-semibold text-gray-900 cursor-pointer" onClick={() => onToggle(carrierIdStr)}>
+        <td className="px-1.5 py-1.5 font-semibold text-gray-900">
           <div className="flex items-center gap-1">
-            {carrier.tripNumber || carrier.name || "N/A"}
+            {isTrip ? (
+              <a
+                href={`/carrier-trips/${carrierIdStr}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {carrier.tripNumber || carrier.name || "N/A"}
+              </a>
+            ) : (
+              <span className="cursor-pointer" onClick={() => onToggle(carrierIdStr)}>
+                {carrier.tripNumber || carrier.name || "N/A"}
+              </span>
+            )}
             {carrier.type === "company" && (
               <span className="text-[8px] text-gray-500 bg-gray-100 px-1 py-0.5 rounded">
                 CO
@@ -561,18 +574,15 @@ function CarrierCarsRow({
         </td>
         <td
           className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[100px] truncate"
-          title={carrier.carrierName || ""}
+          title={carrier.truckData?.name || carrier.carrierName || ""}
         >
-          {carrier.carrierName || "-"}
+          {carrier.truckData?.name || carrier.carrierName || "-"}
         </td>
         <td
           className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[100px] truncate"
-          title={carrier.driverName || ""}
+          title={carrier.truckData?.driver?.name || carrier.driverName || ""}
         >
-          {carrier.driverName || "-"}
-        </td>
-        <td className="px-2 py-2 text-gray-700 text-[10px] min-w-[200px] max-w-[250px]">
-          <TruncatedText text={carrier.details} maxLines={2} />
+          {carrier.truckData?.driver?.name || carrier.driverName || "-"}
         </td>
         <td className="px-2 py-2 text-gray-700 text-[10px] min-w-[200px] max-w-[250px]">
           <TruncatedText text={carrier.notes} maxLines={2} />

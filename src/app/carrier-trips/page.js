@@ -104,9 +104,25 @@ export default function CarriersPage() {
     [carriers]
   );
 
+  const totalExpenses = useMemo(
+    () => carriers.reduce((sum, c) => sum + (c.totalExpense || 0), 0),
+    [carriers]
+  );
+
+  const totalProfit = useMemo(
+    () => totalAmount - totalExpenses,
+    [totalAmount, totalExpenses]
+  );
+
   const totalTrips = useMemo(
     () => pagination?.total || carriers.length,
     [pagination?.total, carriers.length]
+  );
+
+  // Check if company filter is selected
+  const hasCompanyFilter = useMemo(
+    () => !!queryParams.company,
+    [queryParams.company]
   );
 
   const loading = carriersLoading || companiesLoading || usersLoading;
@@ -115,7 +131,7 @@ export default function CarriersPage() {
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto px-4 py-8">
         {/* Summary Cards - Top level stats shown first */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
+        <div className={`grid grid-cols-1 gap-2 mb-3 ${hasCompanyFilter ? "md:grid-cols-3" : "md:grid-cols-5"}`}>
           <div className="bg-white px-3 py-2 rounded-lg shadow-sm border border-gray-200">
             <p className="text-[10px] text-gray-500 mb-0.5">Total Cars</p>
             <p className="text-lg font-bold text-gray-800">{totalCars}</p>
@@ -126,6 +142,22 @@ export default function CarriersPage() {
               R{totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
             </p>
           </div>
+          {!hasCompanyFilter && (
+            <>
+              <div className="bg-white px-3 py-2 rounded-lg shadow-sm border border-gray-200">
+                <p className="text-[10px] text-gray-500 mb-0.5">Total Expenses</p>
+                <p className="text-lg font-bold text-red-600">
+                  R{totalExpenses.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                </p>
+              </div>
+              <div className="bg-white px-3 py-2 rounded-lg shadow-sm border border-gray-200">
+                <p className="text-[10px] text-gray-500 mb-0.5">Total Profit</p>
+                <p className={`text-lg font-bold ${totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                  R{totalProfit.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                </p>
+              </div>
+            </>
+          )}
           <div className="bg-white px-3 py-2 rounded-lg shadow-sm border border-gray-200">
             <p className="text-[10px] text-gray-500 mb-0.5">Total Trips</p>
             <p className="text-lg font-bold text-blue-600">{totalTrips}</p>

@@ -38,6 +38,17 @@ export default function PaymentTrackingSection({
             <p className="text-lg font-bold text-blue-600">
               R{paymentInfo.totalPaid.toLocaleString("en-US", { minimumFractionDigits: 2 })}
             </p>
+            {(() => {
+              const totalExcess = (paymentInfo.payments || []).reduce(
+                (sum, payment) => sum + (payment.excessAmount || 0),
+                0
+              );
+              return totalExcess > 0 ? (
+                <p className="text-xs text-blue-500 mt-0.5">
+                  Extra: R{totalExcess.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                </p>
+              ) : null;
+            })()}
           </div>
           <div>
             <p className="text-xs text-gray-500 mb-1">Remaining Balance</p>
@@ -57,11 +68,6 @@ export default function PaymentTrackingSection({
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500">Status:</span>
           {getPaymentStatusBadge(paymentInfo.paymentStatus, paymentInfo.remainingBalance)}
-          {invoice.dueDate && (
-            <span className="text-xs text-gray-500 ml-4">
-              Due: {formatDate(invoice.dueDate)}
-            </span>
-          )}
         </div>
 
         {/* Payment History */}
@@ -74,6 +80,9 @@ export default function PaymentTrackingSection({
                   <tr>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
                       Date
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
+                      Method
                     </th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
                       Notes
@@ -93,12 +102,29 @@ export default function PaymentTrackingSection({
                         {formatDate(payment.paymentDate)}
                       </td>
                       <td className="px-3 py-2 text-gray-600 text-xs">
+                        {payment.paymentMethod || "Cash"}
+                        {payment.paymentMethod === "Bank" && payment.accountInfo && (
+                          <span className="block text-gray-500 text-xs mt-0.5">
+                            {payment.accountInfo}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-gray-600 text-xs">
                         {payment.notes || "-"}
                       </td>
-                      <td className="px-3 py-2 text-right font-semibold text-green-600">
-                        R{(payment.amount || 0).toLocaleString("en-US", {
-                          minimumFractionDigits: 2,
-                        })}
+                      <td className="px-3 py-2 text-right">
+                        <div className="font-semibold text-green-600">
+                          R{(payment.amount || 0).toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                          })}
+                        </div>
+                        {payment.excessAmount && payment.excessAmount > 0 && (
+                          <div className="text-xs text-blue-600 mt-0.5">
+                            (Excess: R{payment.excessAmount.toLocaleString("en-US", {
+                              minimumFractionDigits: 2,
+                            })} → Credit)
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-center">
                         <button

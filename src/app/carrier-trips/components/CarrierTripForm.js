@@ -2,7 +2,9 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { createCarrier, updateCarrierExpense, generateNextTripNumber } from "@/app/lib/carriers-actions/carriers";
+import { getAllTrucks } from "@/app/lib/carriers-actions/trucks";
 import { useUser } from "@/app/components/UserContext";
 import { X, RefreshCw } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
@@ -15,8 +17,15 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
   const [error, setError] = useState(null);
   const [tripNumber, setTripNumber] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const detailsRef = useRef(null);
   const notesRef = useRef(null);
+
+  // Fetch trucks for selection
+  const { data: trucksData } = useQuery({
+    queryKey: ["trucks"],
+    queryFn: () => getAllTrucks({ isActive: "true" }),
+  });
+
+  const trucks = trucksData?.trucks || [];
 
   // Auto-resize textareas
   const adjustTextareaHeight = (textarea) => {
@@ -52,9 +61,6 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
   };
 
   useEffect(() => {
-    if (detailsRef.current) {
-      adjustTextareaHeight(detailsRef.current);
-    }
     if (notesRef.current) {
       adjustTextareaHeight(notesRef.current);
     }
@@ -196,28 +202,30 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
 
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-0.5">
-                  Carrier Name
+                  Assign Truck <span className="text-gray-500 font-normal">(Optional)</span>
                 </label>
-                <input
-                  type="text"
-                  name="carrierName"
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
-                  placeholder="e.g., ABC Transport"
+                <select
+                  name="truck"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                   disabled={isSubmitting}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-0.5">
-                  Driver Name
-                </label>
-                <input
-                  type="text"
-                  name="driverName"
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
-                  placeholder="e.g., John Doe"
-                  disabled={isSubmitting}
-                />
+                >
+                  <option value="">No truck assigned</option>
+                  {trucks.map((truck) => (
+                    <option key={truck._id} value={truck._id}>
+                      {truck.name} {truck.driver?.name ? `- ${truck.driver.name}` : ""} {truck.number ? `(${truck.number})` : ""}
+                    </option>
+                  ))}
+                </select>
+                {trucks.length === 0 && (
+                  <p className="text-[10px] text-amber-600 mt-0.5">
+                    ⚠ No trucks available. Please create a truck first in the Trucks tab.
+                  </p>
+                )}
+                {trucks.length > 0 && (
+                  <p className="text-[10px] text-gray-500 mt-0.5">
+                    Select the truck that will carry vehicles for this trip
+                  </p>
+                )}
               </div>
             </>
           )}
@@ -256,63 +264,32 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
 
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-0.5">
-                  Carrier Name
+                  Assign Truck
                 </label>
-                <input
-                  type="text"
-                  name="carrierName"
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
-                  placeholder="e.g., ABC Transport"
-                  defaultValue={carrier?.carrierName || ""}
+                <select
+                  name="truck"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  defaultValue={carrier?.truck?._id || carrier?.truck || ""}
                   disabled={isSubmitting}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-0.5">
-                  Driver Name
-                </label>
-                <input
-                  type="text"
-                  name="driverName"
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
-                  placeholder="e.g., John Doe"
-                  defaultValue={carrier?.driverName || ""}
-                  disabled={isSubmitting}
-                />
+                >
+                  <option value="">No truck assigned</option>
+                  {trucks.map((truck) => (
+                    <option key={truck._id} value={truck._id}>
+                      {truck.name} {truck.driver?.name ? `- ${truck.driver.name}` : ""} {truck.number ? `(${truck.number})` : ""}
+                    </option>
+                  ))}
+                </select>
+                {trucks.length === 0 && (
+                  <p className="text-[10px] text-amber-600 mt-0.5">
+                    ⚠ No trucks available. Please create a truck first in the Trucks tab.
+                  </p>
+                )}
+                <p className="text-[10px] text-gray-500 mt-0.5">
+                  Change the truck assigned to this trip
+                </p>
               </div>
             </>
           )}
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-0.5">
-              Total Expense
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              name="totalExpense"
-              defaultValue={carrier?.totalExpense || "0"}
-              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
-              disabled={isSubmitting}
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-0.5">
-              Expense Details
-            </label>
-            <textarea
-              ref={detailsRef}
-              name="details"
-              rows="2"
-              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md resize-none overflow-hidden"
-              placeholder="What was the expense for?"
-              defaultValue={carrier?.details || ""}
-              disabled={isSubmitting}
-              onInput={(e) => adjustTextareaHeight(e.target)}
-            />
-          </div>
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-0.5">

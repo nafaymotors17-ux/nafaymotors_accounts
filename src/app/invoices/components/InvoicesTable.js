@@ -6,6 +6,7 @@ import { Eye, Download, Trash2 } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
 import { deleteInvoice, recordPayment, deletePayment } from "@/app/lib/invoice-actions/invoices";
 import { getCarsByCompany } from "@/app/lib/carriers-actions/cars";
+import { getCompanyBalance } from "@/app/lib/invoice-actions/company-balances";
 import { useUser } from "@/app/components/UserContext";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -17,6 +18,7 @@ import TripDetailsModal from "./TripDetailsModal";
 export default function InvoicesTable({
   invoices,
   pagination,
+  totals,
   companies = [],
   loading = false,
   searchQuery = "",
@@ -34,6 +36,13 @@ export default function InvoicesTable({
 
   // Derived value with useMemo
   const isSuperAdmin = useMemo(() => user?.role === "super_admin", [user?.role]);
+  
+  // Check if user can delete invoice (super admin or invoice owner)
+  const canDeleteInvoice = useCallback((invoice) => {
+    if (isSuperAdmin) return true;
+    if (!user || !invoice) return false;
+    return invoice.userId?.toString() === user.userId?.toString();
+  }, [isSuperAdmin, user]);
 
   // UI state only
   const [viewingInvoice, setViewingInvoice] = useState(null);
@@ -64,6 +73,19 @@ export default function InvoicesTable({
     enabled: !!viewingInvoice,
   });
 
+  // Fetch company balance when viewing invoice
+  const {
+    data: companyBalanceData,
+    isLoading: loadingCompanyBalance,
+  } = useQuery({
+    queryKey: ["companyBalance", viewingInvoice?.clientCompanyName],
+    queryFn: () => {
+      if (!viewingInvoice?.clientCompanyName) return null;
+      return getCompanyBalance(viewingInvoice.clientCompanyName);
+    },
+    enabled: !!viewingInvoice?.clientCompanyName,
+  });
+
   // Derived value - filtered cars for the invoice
   const invoiceCars = useMemo(() => {
     if (!invoiceCarsData?.success || !viewingInvoice) return [];
@@ -86,6 +108,8 @@ export default function InvoicesTable({
     mutationFn: ({ invoiceId, paymentData }) => recordPayment(invoiceId, paymentData),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["companyBalance"] });
+      queryClient.invalidateQueries({ queryKey: ["company-balances"] });
       if (data.invoice) {
         setViewingInvoice(data.invoice);
       }
@@ -102,6 +126,8 @@ export default function InvoicesTable({
     mutationFn: ({ invoiceId, paymentId }) => deletePayment(invoiceId, paymentId),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["companyBalance"] });
+      queryClient.invalidateQueries({ queryKey: ["company-balances"] });
       if (data.invoice) {
         setViewingInvoice(data.invoice);
       }
@@ -111,7 +137,11 @@ export default function InvoicesTable({
   // Helper functions
   const getPaymentInfo = useCallback((invoice) => {
     const payments = invoice.payments || [];
-    const totalPaid = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+    // Calculate total applied to invoice (amount - excessAmount)
+    const totalPaid = payments.reduce((sum, p) => {
+      const appliedAmount = (p.amount || 0) - (p.excessAmount || 0);
+      return sum + appliedAmount;
+    }, 0);
     const totalAmount = invoice.totalAmount || 0;
     const remainingBalance = totalAmount - totalPaid;
     const paymentStatus = invoice.paymentStatus || "unpaid";
@@ -132,23 +162,11 @@ export default function InvoicesTable({
       return <span className={`${baseClasses} bg-green-100 text-green-800`}>Paid</span>;
     } else if (status === "partial") {
       return <span className={`${baseClasses} bg-yellow-100 text-yellow-800`}>Partial</span>;
-    } else if (status === "overdue") {
-      return <span className={`${baseClasses} bg-red-100 text-red-800`}>Overdue</span>;
     } else {
       return <span className={`${baseClasses} bg-gray-100 text-gray-800`}>Unpaid</span>;
     }
   }, []);
 
-  const getDaysOverdue = useCallback((invoice) => {
-    if (!invoice.dueDate) return null;
-    const dueDate = new Date(invoice.dueDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    dueDate.setHours(0, 0, 0, 0);
-    const diffTime = today - dueDate;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays;
-  }, []);
 
   // Event handlers
   const handleClearFilters = useCallback(() => {
@@ -159,14 +177,13 @@ export default function InvoicesTable({
 
   const handleDeleteInvoice = useCallback(
     async (invoiceId, invoiceNumber) => {
-      if (!isSuperAdmin) return;
       const confirmed = window.confirm(
         `Are you sure you want to delete invoice ${invoiceNumber}? This action cannot be undone.`
       );
       if (!confirmed) return;
       deleteInvoiceMutation.mutate(invoiceId);
     },
-    [isSuperAdmin, deleteInvoiceMutation]
+    [deleteInvoiceMutation]
   );
 
   const handleViewInvoice = useCallback((invoice) => {
@@ -337,6 +354,68 @@ export default function InvoicesTable({
       );
       finalY += 10;
 
+      // Payment Information Section
+      const paymentInfo = getPaymentInfo(invoice);
+      // Always show payment information section
+      // Add a separator line
+      doc.setDrawColor(200, 200, 200);
+      doc.line(margin, finalY, pageWidth - margin, finalY);
+      finalY += 8;
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.setTextColor(31, 41, 55);
+        doc.text("PAYMENT INFORMATION:", margin, finalY);
+        finalY += 8;
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        doc.setTextColor(0, 0, 0);
+
+        // Total Paid
+        doc.text("Total Paid:", margin, finalY);
+        doc.setFont("helvetica", "bold");
+        doc.text(
+          `R${paymentInfo.totalPaid.toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+          })}`,
+          pageWidth - margin,
+          finalY,
+          { align: "right" }
+        );
+        finalY += 6;
+
+        // Remaining Balance
+        doc.setFont("helvetica", "normal");
+        doc.text("Remaining Balance:", margin, finalY);
+        doc.setFont("helvetica", "bold");
+        // Color code remaining balance (red if > 0, green if 0)
+        if (paymentInfo.remainingBalance > 0) {
+          doc.setTextColor(220, 38, 38); // Red color
+        } else {
+          doc.setTextColor(34, 197, 94); // Green color
+        }
+        doc.text(
+          `R${paymentInfo.remainingBalance.toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+          })}`,
+          pageWidth - margin,
+          finalY,
+          { align: "right" }
+        );
+        doc.setTextColor(0, 0, 0); // Reset color
+        finalY += 6;
+
+        // Payment Status
+        doc.setFont("helvetica", "normal");
+        doc.text("Payment Status:", margin, finalY);
+        doc.setFont("helvetica", "bold");
+        const statusText = paymentInfo.paymentStatus.toUpperCase();
+        doc.text(statusText, pageWidth - margin, finalY, { align: "right" });
+        finalY += 8;
+
+      finalY += 4;
+
       // Thank you message
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
@@ -379,7 +458,7 @@ export default function InvoicesTable({
     } finally {
       setGeneratingPDF(false);
     }
-  }, []);
+  }, [getPaymentInfo]);
 
   const handleDownloadPDF = useCallback(() => {
     if (viewingInvoice && invoiceCars.length > 0) {
@@ -464,37 +543,34 @@ export default function InvoicesTable({
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
                     Invoice #
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
                     Date
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
                     Client Company
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
                     Sender Company
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
                     Trip(s)
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">
                     Total
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">
                     Paid
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">
                     Balance
                   </th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">
                     Status
                   </th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                    Days Overdue
-                  </th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">
                     Actions
                   </th>
                 </tr>
@@ -504,19 +580,19 @@ export default function InvoicesTable({
                   const paymentInfo = getPaymentInfo(invoice);
                   return (
                     <tr key={invoice._id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      <td className="px-3 py-2 whitespace-nowrap text-xs font-medium text-gray-900">
                         {invoice.invoiceNumber}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-600">
                         {formatDate(invoice.invoiceDate)}
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">
+                      <td className="px-3 py-2 text-xs text-gray-600">
                         {invoice.clientCompanyName}
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">
+                      <td className="px-3 py-2 text-xs text-gray-600">
                         {invoice.senderCompanyName}
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">
+                      <td className="px-3 py-2 text-xs text-gray-600">
                         {invoice.tripNumbers && invoice.tripNumbers.length > 0 ? (
                           <button
                             onClick={() => {
@@ -541,19 +617,36 @@ export default function InvoicesTable({
                           <span className="text-gray-400 text-xs">-</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold text-green-600">
+                      <td className="px-3 py-2 whitespace-nowrap text-xs text-right font-semibold text-green-600">
                         R{" "}
                         {invoice.totalAmount.toLocaleString("en-US", {
                           minimumFractionDigits: 2,
                         })}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-blue-600">
-                        R{" "}
-                        {paymentInfo.totalPaid.toLocaleString("en-US", {
-                          minimumFractionDigits: 2,
-                        })}
+                      <td className="px-3 py-2 whitespace-nowrap text-xs text-right">
+                        {(() => {
+                          const totalExcess = (paymentInfo.payments || []).reduce(
+                            (sum, payment) => sum + (payment.excessAmount || 0),
+                            0
+                          );
+                          return (
+                            <div>
+                              <div className="text-blue-600 font-semibold">
+                                R{" "}
+                                {paymentInfo.totalPaid.toLocaleString("en-US", {
+                                  minimumFractionDigits: 2,
+                                })}
+                              </div>
+                              {totalExcess > 0 && (
+                                <div className="text-[10px] text-blue-400 mt-0.5">
+                                  (+R{totalExcess.toLocaleString("en-US", { minimumFractionDigits: 2 })})
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold">
+                      <td className="px-3 py-2 whitespace-nowrap text-xs text-right font-semibold">
                         <span
                           className={
                             paymentInfo.remainingBalance > 0
@@ -567,38 +660,13 @@ export default function InvoicesTable({
                           })}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <td className="px-3 py-2 whitespace-nowrap text-center">
                         {getPaymentStatusBadge(
                           paymentInfo.paymentStatus,
                           paymentInfo.remainingBalance
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center text-xs">
-                        {(() => {
-                          const daysOverdue = getDaysOverdue(invoice);
-                          if (daysOverdue === null)
-                            return <span className="text-gray-400">-</span>;
-                          if (daysOverdue > 0 && paymentInfo.remainingBalance > 0) {
-                            return (
-                              <span className="text-red-600 font-semibold">
-                                {daysOverdue} days
-                              </span>
-                            );
-                          } else if (
-                            daysOverdue <= 0 &&
-                            paymentInfo.remainingBalance > 0
-                          ) {
-                            return (
-                              <span className="text-yellow-600">
-                                {Math.abs(daysOverdue)} days left
-                              </span>
-                            );
-                          } else {
-                            return <span className="text-gray-400">-</span>;
-                          }
-                        })()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <td className="px-3 py-2 whitespace-nowrap text-center">
                         <div className="flex justify-center gap-2">
                           <button
                             onClick={() => handleViewInvoice(invoice)}
@@ -615,7 +683,7 @@ export default function InvoicesTable({
                           >
                             <Download className="w-4 h-4" />
                           </button>
-                          {isSuperAdmin && (
+                          {canDeleteInvoice(invoice) && (
                             <button
                               onClick={() =>
                                 handleDeleteInvoice(invoice._id, invoice.invoiceNumber)
@@ -632,6 +700,39 @@ export default function InvoicesTable({
                     </tr>
                   );
                 })}
+                {/* Totals Row - Shows totals for entire filtered dataset */}
+                {totals && invoices.length > 0 && (
+                  <tr className="bg-gray-50 border-t-2 border-gray-300 font-bold">
+                    <td colSpan="5" className="px-3 py-2 text-xs text-right font-semibold text-gray-700">
+                      TOTALS (All {pagination?.total || 0} invoices):
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-xs text-right font-bold text-green-700">
+                      R{" "}
+                      {totals.totalAmount.toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-xs text-right font-bold text-blue-700">
+                      R{" "}
+                      {totals.totalPaid.toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-xs text-right font-bold">
+                      <span
+                        className={
+                          totals.totalBalance > 0 ? "text-red-700" : "text-green-700"
+                        }
+                      >
+                        R{" "}
+                        {totals.totalBalance.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                        })}
+                      </span>
+                    </td>
+                    <td colSpan="3" className="px-3 py-2"></td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -690,6 +791,8 @@ export default function InvoicesTable({
           generatingPDF={generatingPDF}
           paymentInfo={viewingInvoicePaymentInfo}
           getPaymentStatusBadge={getPaymentStatusBadge}
+          companyBalance={companyBalanceData}
+          loadingCompanyBalance={loadingCompanyBalance}
           onClose={handleCloseModal}
           onDownloadPDF={handleDownloadPDF}
           onRecordPayment={handleRecordPayment}

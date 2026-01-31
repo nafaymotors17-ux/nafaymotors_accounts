@@ -5,6 +5,7 @@ import mongoose from "mongoose";
 import connectDB from "@/app/lib/dbConnect";
 import Carrier from "@/app/lib/models/Carrier";
 import Car from "@/app/lib/models/Car";
+import Expense from "@/app/lib/models/Expense";
 import { getSession } from "@/app/lib/auth/getSession";
 
 export async function getAllCarriers(searchParams = {}) {
@@ -65,12 +66,27 @@ export async function getAllCarriers(searchParams = {}) {
       }
     }
     
-    // Filter by trip number
+    // Filter by trip number (supports comma-separated values)
     if (searchParams.tripNumber) {
       const tripNumberFilter = decodeURIComponent(searchParams.tripNumber).trim();
       if (tripNumberFilter) {
-        const escapedTripNumber = tripNumberFilter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        carrierMatchConditions.push({ tripNumber: { $regex: escapedTripNumber, $options: "i" } });
+        // Split by comma and trim each trip number
+        const tripNumbers = tripNumberFilter.split(',').map(tn => tn.trim()).filter(tn => tn);
+        if (tripNumbers.length > 0) {
+          // Use regex for single trip number, $or for multiple
+          if (tripNumbers.length === 1) {
+            const escapedTripNumber = tripNumbers[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            carrierMatchConditions.push({ tripNumber: { $regex: escapedTripNumber, $options: "i" } });
+          } else {
+            // For multiple trip numbers, use $or with regex for each
+            carrierMatchConditions.push({
+              $or: tripNumbers.map(tn => {
+                const escaped = tn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                return { tripNumber: { $regex: escaped, $options: "i" } };
+              })
+            });
+          }
+        }
       }
     }
     
@@ -182,12 +198,48 @@ export async function getAllCarriers(searchParams = {}) {
             { $skip: skip },
             { $limit: limit },
             {
+              $lookup: {
+                from: "trucks",
+                localField: "truck",
+                foreignField: "_id",
+                as: "truckData",
+              },
+            },
+            {
+              $unwind: {
+                path: "$truckData",
+                preserveNullAndEmptyArrays: true,
+              },
+            },
+            {
+              $lookup: {
+                from: "drivers",
+                localField: "truckData.driver",
+                foreignField: "_id",
+                as: "truckData.driver",
+              },
+            },
+            {
+              $addFields: {
+                "truckData.driver": { $arrayElemAt: ["$truckData.driver", 0] },
+              },
+            },
+            {
               $project: {
                 tripNumber: 1,
                 name: 1,
                 type: 1,
                 date: 1,
                 totalExpense: 1,
+                truck: 1,
+                truckData: {
+                  _id: 1,
+                  name: 1,
+                  driver: {
+                    _id: 1,
+                    name: 1,
+                  },
+                },
                 carrierName: 1,
                 driverName: 1,
                 details: 1,
@@ -405,6 +457,8 @@ export async function createCarrier(formData) {
     const type = formData.get("type") || "trip";
     const date = formData.get("date");
     const totalExpense = parseFloat(formData.get("totalExpense") || "0");
+    const truckId = formData.get("truck")?.trim() || "";
+    // Legacy fields for backward compatibility
     const carrierName = formData.get("carrierName")?.trim() || "";
     const driverName = formData.get("driverName")?.trim() || "";
     const details = formData.get("details")?.trim() || "";
@@ -464,6 +518,26 @@ export async function createCarrier(formData) {
       }
     }
 
+    // Validate truck if provided
+    let truckObjectId = null;
+    if (truckId) {
+      if (mongoose.Types.ObjectId.isValid(truckId)) {
+        truckObjectId = new mongoose.Types.ObjectId(truckId);
+        // Verify truck exists
+        const Truck = (await import("@/app/lib/models/Truck")).default;
+        const truck = await Truck.findById(truckObjectId);
+        if (!truck) {
+          return { error: "Selected truck not found" };
+        }
+        // Check permissions - user must own the truck or be super admin
+        if (session.role !== "super_admin" && truck.userId.toString() !== targetUserId.toString()) {
+          return { error: "Selected truck does not belong to this user" };
+        }
+      } else {
+        return { error: "Invalid truck ID" };
+      }
+    }
+
     // Create new carrier
     const carrier = new Carrier({
       tripNumber: type === "trip" ? tripNumber : undefined,
@@ -472,6 +546,8 @@ export async function createCarrier(formData) {
       userId: targetUserId,
       date: date ? new Date(date) : new Date(),
       totalExpense: totalExpense || 0,
+      truck: truckObjectId,
+      // Legacy fields for backward compatibility
       carrierName: carrierName || "",
       driverName: driverName || "",
       details: details || "",
@@ -535,7 +611,8 @@ export async function updateCarrierExpense(carrierId, formData) {
       return { error: "Unauthorized" };
     }
 
-    const expense = formData.get("totalExpense");
+    const truckId = formData.get("truck")?.trim() || "";
+    // Legacy fields for backward compatibility
     const carrierName = formData.get("carrierName")?.trim() || "";
     const driverName = formData.get("driverName")?.trim() || "";
     const details = formData.get("details")?.trim() || "";
@@ -553,8 +630,34 @@ export async function updateCarrierExpense(carrierId, formData) {
       return { error: "Unauthorized" };
     }
 
+    // Calculate totalExpense from individual expenses
+    const expenses = await Expense.find({ carrier: carrierId });
+    const totalExpense = expenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
+
+    // Validate truck if provided
+    let truckObjectId = null;
+    if (truckId) {
+      if (mongoose.Types.ObjectId.isValid(truckId)) {
+        truckObjectId = new mongoose.Types.ObjectId(truckId);
+        // Verify truck exists
+        const Truck = (await import("@/app/lib/models/Truck")).default;
+        const truck = await Truck.findById(truckObjectId);
+        if (!truck) {
+          return { error: "Selected truck not found" };
+        }
+        // Check permissions - user must own the truck or be super admin
+        if (session.role !== "super_admin" && truck.userId.toString() !== carrier.userId.toString()) {
+          return { error: "Selected truck does not belong to this user" };
+        }
+      } else {
+        return { error: "Invalid truck ID" };
+      }
+    }
+
     const updateData = {
-      totalExpense: parseFloat(expense) || 0,
+      totalExpense,
+      truck: truckObjectId,
+      // Legacy fields for backward compatibility
       carrierName,
       driverName,
       details,

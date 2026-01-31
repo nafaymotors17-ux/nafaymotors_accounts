@@ -94,6 +94,11 @@ const InvoiceSchema = new mongoose.Schema({
       required: true,
       default: 0,
     },
+    // Excess amount that was paid beyond invoice balance (added to company credit)
+    excessAmount: {
+      type: Number,
+      default: 0,
+    },
     paymentDate: {
       type: Date,
       default: Date.now,
@@ -102,6 +107,10 @@ const InvoiceSchema = new mongoose.Schema({
       type: String,
       trim: true,
       default: "Cash", // Cash, Bank Transfer, Check, etc.
+    },
+    accountInfo: {
+      type: String,
+      trim: true,
     },
     notes: {
       type: String,
@@ -116,14 +125,10 @@ const InvoiceSchema = new mongoose.Schema({
       default: Date.now,
     },
   }],
-  // Due date for payment tracking
-  dueDate: {
-    type: Date,
-  },
   // Payment status - calculated field
   paymentStatus: {
     type: String,
-    enum: ["unpaid", "partial", "paid", "overdue"],
+    enum: ["unpaid", "partial", "paid"],
     default: "unpaid",
   },
   createdAt: {
@@ -141,25 +146,19 @@ InvoiceSchema.pre("save", function () {
   
   // Calculate payment status
   if (this.payments && Array.isArray(this.payments)) {
-    const totalPaid = this.payments.reduce((sum, payment) => sum + (payment.amount || 0), 0);
+    // Calculate total applied to invoice (amount - excessAmount)
+    const totalPaid = this.payments.reduce((sum, payment) => {
+      const appliedAmount = (payment.amount || 0) - (payment.excessAmount || 0);
+      return sum + appliedAmount;
+    }, 0);
     const totalAmount = this.totalAmount || 0;
     
     if (totalPaid >= totalAmount) {
       this.paymentStatus = "paid";
     } else if (totalPaid > 0) {
-      // Check if overdue
-      if (this.dueDate && new Date() > new Date(this.dueDate)) {
-        this.paymentStatus = "overdue";
-      } else {
-        this.paymentStatus = "partial";
-      }
+      this.paymentStatus = "partial";
     } else {
-      // Check if overdue
-      if (this.dueDate && new Date() > new Date(this.dueDate)) {
-        this.paymentStatus = "overdue";
-      } else {
-        this.paymentStatus = "unpaid";
-      }
+      this.paymentStatus = "unpaid";
     }
   }
 });

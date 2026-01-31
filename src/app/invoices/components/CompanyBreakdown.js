@@ -17,7 +17,6 @@ export default function CompanyBreakdown({ invoices, getPaymentInfo }) {
           paidCount: 0,
           unpaidCount: 0,
           partialCount: 0,
-          overdueCount: 0,
           totalAmount: 0,
           totalPaid: 0,
           outstandingBalance: 0,
@@ -33,7 +32,6 @@ export default function CompanyBreakdown({ invoices, getPaymentInfo }) {
       if (paymentInfo.paymentStatus === "paid") breakdown[companyName].paidCount++;
       else if (paymentInfo.paymentStatus === "unpaid") breakdown[companyName].unpaidCount++;
       else if (paymentInfo.paymentStatus === "partial") breakdown[companyName].partialCount++;
-      else if (paymentInfo.paymentStatus === "overdue") breakdown[companyName].overdueCount++;
     });
 
     return Object.entries(breakdown)
@@ -129,11 +127,6 @@ export default function CompanyBreakdown({ invoices, getPaymentInfo }) {
                       {company.unpaidCount > 0 && (
                         <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded">
                           Unpaid: {company.unpaidCount}
-                        </span>
-                      )}
-                      {company.overdueCount > 0 && (
-                        <span className="px-2 py-1 bg-red-100 text-red-800 rounded">
-                          Overdue: {company.overdueCount}
                         </span>
                       )}
                     </div>

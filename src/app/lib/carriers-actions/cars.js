@@ -93,18 +93,32 @@ export async function getFilteredCars(filters = {}) {
       query.carrier = filters.carrierId;
     }
 
-    const cars = await Car.find(query)
-      .populate("carrier", "tripNumber name type date totalExpense")
-      .sort({ date: 1, createdAt: 1 })
-      .lean();
+    // Get cars and calculate totals in parallel using aggregation
+    const [cars, totalsResult] = await Promise.all([
+      Car.find(query)
+        .populate("carrier", "tripNumber name type date totalExpense")
+        .sort({ date: 1, createdAt: 1 })
+        .lean(),
+      // Calculate totals at database level
+      Car.aggregate([
+        { $match: query },
+        {
+          $group: {
+            _id: null,
+            totalAmount: { $sum: { $ifNull: ["$amount", 0] } },
+            count: { $sum: 1 }
+          }
+        }
+      ])
+    ]);
 
-    // Calculate totals
-    const totalAmount = cars.reduce((sum, car) => sum + (car.amount || 0), 0);
+    // Extract totals from aggregation result
+    const totals = totalsResult.length > 0 ? totalsResult[0] : { totalAmount: 0, count: 0 };
 
     return {
       cars: JSON.parse(JSON.stringify(cars)),
-      totalAmount,
-      count: cars.length,
+      totalAmount: totals.totalAmount || 0,
+      count: totals.count || 0,
     };
   } catch (error) {
     console.error("Error fetching filtered cars:", error);
@@ -306,40 +320,61 @@ export async function getCarsByCompany(filters = {}) {
       query.carrier = { $in: carrierIds };
     }
 
-    // Trip number filter - find carriers with matching trip number first
+    // Trip number filter - find carriers with matching trip number(s) first (supports comma-separated)
     if (tripNumber && tripNumber.trim()) {
-      const tripCarriers = await Carrier.find({
-        tripNumber: { $regex: tripNumber.trim(), $options: "i" },
-        type: "trip",
-      }).select("_id").lean();
+      // Split by comma and trim each trip number
+      const tripNumbers = tripNumber.trim().split(',').map(tn => tn.trim()).filter(tn => tn);
       
-      if (tripCarriers.length > 0) {
-        const tripCarrierIds = tripCarriers.map(tc => tc._id);
-        if (query.carrier) {
-          // If carrier filter already exists, combine with AND
-          if (Array.isArray(query.carrier.$in)) {
-            query.carrier.$in = query.carrier.$in.filter(id => 
-              tripCarrierIds.some(tid => tid.toString() === id.toString())
-            );
+      if (tripNumbers.length > 0) {
+        let tripCarriers;
+        
+        if (tripNumbers.length === 1) {
+          // Single trip number - use regex (escape special characters)
+          const escapedTripNumber = tripNumbers[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          tripCarriers = await Carrier.find({
+            tripNumber: { $regex: escapedTripNumber, $options: "i" },
+            type: "trip",
+          }).select("_id").lean();
+        } else {
+          // Multiple trip numbers - use $or with regex for each (escape special characters)
+          const tripNumberConditions = tripNumbers.map(tn => {
+            const escaped = tn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return { tripNumber: { $regex: escaped, $options: "i" } };
+          });
+          tripCarriers = await Carrier.find({
+            $or: tripNumberConditions,
+            type: "trip",
+          }).select("_id").lean();
+        }
+        
+        if (tripCarriers.length > 0) {
+          const tripCarrierIds = tripCarriers.map(tc => tc._id);
+          if (query.carrier) {
+            // If carrier filter already exists, combine with AND
+            if (Array.isArray(query.carrier.$in)) {
+              query.carrier.$in = query.carrier.$in.filter(id => 
+                tripCarrierIds.some(tid => tid.toString() === id.toString())
+              );
+            } else {
+              // Convert to array and filter
+              const existingCarrierId = query.carrier;
+              query.carrier = { 
+                $in: tripCarrierIds.filter(id => id.toString() === existingCarrierId.toString())
+              };
+            }
           } else {
-            // Convert to array and filter
-            const existingCarrierId = query.carrier;
-            query.carrier = { 
-              $in: tripCarrierIds.filter(id => id.toString() === existingCarrierId.toString())
-            };
+            query.carrier = { $in: tripCarrierIds };
           }
         } else {
-          query.carrier = { $in: tripCarrierIds };
+          // No matching trips found, return empty result
+          return {
+            success: true,
+            cars: [],
+            groupedCars: {},
+            totalAmount: 0,
+            count: 0,
+          };
         }
-      } else {
-        // No matching trips found, return empty result
-        return {
-          success: true,
-          cars: [],
-          groupedCars: {},
-          totalAmount: 0,
-          count: 0,
-        };
       }
     }
 

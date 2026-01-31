@@ -38,6 +38,12 @@ const CarrierSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  // Reference to Truck (new structure)
+  truck: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Truck",
+  },
+  // Legacy fields - kept for backward compatibility
   carrierName: {
     type: String,
     trim: true,

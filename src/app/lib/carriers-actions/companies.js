@@ -167,9 +167,9 @@ export async function createCompany(name, targetUserId = null) {
     }
     
   
+    // Check if company name already exists globally (not per user)
     const existingCompany = await Company.findOne({ 
-      name: trimmedName, 
-      userId: finalUserId 
+      name: trimmedName
     });
     if (existingCompany) {
       return { error: "Company with this name already exists" };

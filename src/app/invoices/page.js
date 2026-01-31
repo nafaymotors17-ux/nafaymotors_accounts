@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getInvoices } from "@/app/lib/invoice-actions/invoices";
 import { getAllCompanies } from "@/app/lib/carriers-actions/companies";
 import InvoicesTable from "./components/InvoicesTable";
+import { RefreshCw } from "lucide-react";
 
 export default function InvoicesPage() {
   // UI state only
@@ -14,11 +15,15 @@ export default function InvoicesPage() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
 
+  const queryClient = useQueryClient();
+
   // Server data with React Query
   const {
     data: invoicesData,
     isLoading: invoicesLoading,
     error: invoicesError,
+    refetch: refetchInvoices,
+    isRefetching: isRefetchingInvoices,
   } = useQuery({
     queryKey: ["invoices", { page, limit, search: searchQuery, company: selectedCompany, paymentStatus }],
     queryFn: () =>
@@ -34,10 +39,20 @@ export default function InvoicesPage() {
   const {
     data: companiesData,
     isLoading: companiesLoading,
+    refetch: refetchCompanies,
+    isRefetching: isRefetchingCompanies,
   } = useQuery({
     queryKey: ["companies"],
     queryFn: getAllCompanies,
   });
+
+  const handleRefresh = () => {
+    refetchInvoices();
+    refetchCompanies();
+    queryClient.invalidateQueries({ queryKey: ["company-balances"] });
+  };
+
+  const isRefreshing = isRefetchingInvoices || isRefetchingCompanies;
 
   const handleSearchChange = (value) => {
     setSearchQuery(value);
@@ -65,9 +80,21 @@ export default function InvoicesPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      <div className="mb-4 flex justify-end">
+        <button
+          onClick={handleRefresh}
+          disabled={isRefreshing || invoicesLoading || companiesLoading}
+          className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          title="Refresh data"
+        >
+          <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
+          <span>Refresh</span>
+        </button>
+      </div>
       <InvoicesTable
         invoices={invoicesData?.invoices || []}
         pagination={invoicesData?.pagination}
+        totals={invoicesData?.totals}
         companies={companiesData?.companies || []}
         loading={invoicesLoading || companiesLoading}
         searchQuery={searchQuery}
