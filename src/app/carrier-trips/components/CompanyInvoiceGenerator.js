@@ -8,7 +8,7 @@ import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import { getCarsByCompany } from "@/app/lib/carriers-actions/cars";
 import { formatDate } from "@/app/lib/utils/dateFormat";
-import { getCurrentUser } from "@/app/lib/users-actions/users";
+import { useUser } from "@/app/components/UserContext";
 import { createInvoice } from "@/app/lib/invoice-actions/invoices";
 
 export default function CompanyInvoiceGenerator({ companies, initialCompany = null, onClose, selectedTripIds = [] }) {
@@ -24,7 +24,7 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
   const [cars, setCars] = useState([]);
   const [loading, setLoading] = useState(false);
   const [descriptions, setDescriptions] = useState([]);
-  const [currentUser, setCurrentUser] = useState(null);
+  const { fullUserData } = useUser();
   
   // Sender company details - auto-filled from user profile, but editable
   const [senderCompanyName, setSenderCompanyName] = useState("");
@@ -72,25 +72,16 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
     };
   }, [filteredCars, vatPercentage]);
 
-  // Fetch current user details on mount (for backend use only, not shown in UI)
+  // Set sender company details from user context on mount
   useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const result = await getCurrentUser();
-        if (result.success && result.user) {
-          setCurrentUser(result.user);
-          // Set sender company name from name field (for backend, not shown in UI)
-          const userName = result.user.name || result.user.username || "";
-          setSenderCompanyName(userName);
-          // Set address (for backend, not shown in UI)
-          setSenderCompanyAddress(result.user.address || "");
-        }
-      } catch (error) {
-        console.error("Error fetching user:", error);
-      }
-    };
-    fetchUser();
-  }, []);
+    if (fullUserData) {
+      // Set sender company name from name field (for backend, not shown in UI)
+      const userName = fullUserData.name || fullUserData.username || "";
+      setSenderCompanyName(userName);
+      // Set address (for backend, not shown in UI)
+      setSenderCompanyAddress(fullUserData.address || "");
+    }
+  }, [fullUserData]);
 
   // Fetch cars only when company and date filters are applied
   useEffect(() => {
@@ -162,7 +153,7 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
     }
 
     // Use default sender company name if not set (from user)
-    const finalSenderName = senderCompanyName.trim() || (currentUser?.name || currentUser?.username || "COMPANY");
+    const finalSenderName = senderCompanyName.trim() || (fullUserData?.name || fullUserData?.username || "COMPANY");
 
     try {
       const invoiceData = {
@@ -196,7 +187,7 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
     }
 
     // Use default sender company name if not set
-    const finalSenderName = senderCompanyName.trim() || (currentUser?.name || currentUser?.username || "COMPANY");
+    const finalSenderName = senderCompanyName.trim() || (fullUserData?.name || fullUserData?.username || "COMPANY");
 
     // Save invoice first
     setIsSaving(true);
@@ -400,7 +391,7 @@ export default function CompanyInvoiceGenerator({ companies, initialCompany = nu
     }
 
     // Use default sender company name if not set
-    const finalSenderName = senderCompanyName.trim() || (currentUser?.name || currentUser?.username || "COMPANY");
+    const finalSenderName = senderCompanyName.trim() || (fullUserData?.name || fullUserData?.username || "COMPANY");
 
     // Save invoice first
     setIsSaving(true);

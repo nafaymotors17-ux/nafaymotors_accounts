@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
 export async function POST() {
@@ -7,7 +8,7 @@ export async function POST() {
     cookieStore.delete("user_session");
     
     // Create response with expired cookie header to ensure browser clears it
-    const response = Response.json({ success: true }, {
+    const response = NextResponse.json({ success: true }, {
       headers: {
         "Set-Cookie": "user_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax"
       }
@@ -17,7 +18,7 @@ export async function POST() {
     return response;
   } catch (error) {
     console.error("Logout error:", error);
-    return Response.json(
+    return NextResponse.json(
       { success: false, error: "Internal server error" },
       { status: 500 }
     );

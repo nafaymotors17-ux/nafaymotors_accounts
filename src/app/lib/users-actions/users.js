@@ -11,7 +11,7 @@ export async function getAllUsers() {
     await requireSuperAdmin(); // Only super admin can view users
     
     const users = await User.find({})
-      .select("_id username name role address createdAt updatedAt")
+      .select("_id username name role address bankDetails createdAt updatedAt")
       .sort({ createdAt: -1 })
       .lean();
 
@@ -44,7 +44,7 @@ export async function getAllUsersForSelection() {
     }
     
     const users = await User.find({})
-      .select("_id username name role address")
+      .select("_id username name role address bankDetails")
       .sort({ username: 1 })
       .lean();
 
@@ -71,7 +71,7 @@ export async function getCurrentUser() {
     }
 
     const user = await User.findById(session.userId)
-      .select("_id username name role address")
+      .select("_id username name role address bankDetails")
       .lean();
 
     if (!user) {
@@ -97,6 +97,7 @@ export async function createUser(formData) {
     const name = formData.get("name")?.trim() || "";
     const password = formData.get("password");
     const address = formData.get("address")?.trim() || "";
+    const bankDetails = formData.get("bankDetails")?.trim() || "";
 
     if (!username || !password) {
       return { success: false, error: "Username and password are required" };
@@ -114,6 +115,7 @@ export async function createUser(formData) {
       password, // Plain text
       role: "user",
       address,
+      bankDetails,
     });
 
     await user.save();
@@ -127,6 +129,7 @@ export async function createUser(formData) {
         name: user.name,
         role: user.role,
         address: user.address,
+        bankDetails: user.bankDetails,
       },
     };
   } catch (error) {
@@ -145,6 +148,7 @@ export async function updateUser(userId, formData) {
     const name = formData.get("name")?.trim() || "";
     const password = formData.get("password");
     const address = formData.get("address")?.trim() || "";
+    const bankDetails = formData.get("bankDetails")?.trim() || "";
 
     if (!username) {
       return { success: false, error: "Username is required" };
@@ -163,6 +167,7 @@ export async function updateUser(userId, formData) {
       username,
       name,
       address,
+      bankDetails,
     };
 
     // Only update password if provided
@@ -192,6 +197,7 @@ export async function updateUser(userId, formData) {
         name: updatedUser.name,
         role: updatedUser.role,
         address: updatedUser.address || "",
+        bankDetails: updatedUser.bankDetails || "",
       },
     };
   } catch (error) {

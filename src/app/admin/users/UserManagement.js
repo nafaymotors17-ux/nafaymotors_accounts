@@ -50,6 +50,7 @@ export default function UserManagement({ users }) {
       username: user.username || "",
       name: user.name || "",
       address: user.address || "",
+      bankDetails: user.bankDetails || "",
       role: user.role,
     });
     setShowForm(true);
@@ -170,6 +171,21 @@ export default function UserManagement({ users }) {
                     defaultValue={editingUser?.address || ""}
                     placeholder="User address (used for invoices)"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    disabled={isSubmitting}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Bank Details
+                  </label>
+                  <textarea
+                    name="bankDetails"
+                    rows={4}
+                    key={`bankDetails-${editingUser?._id || "new"}`}
+                    defaultValue={editingUser?.bankDetails || ""}
+                    placeholder="Bank details (used for invoices, supports line breaks)"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm"
                     disabled={isSubmitting}
                   />
                 </div>

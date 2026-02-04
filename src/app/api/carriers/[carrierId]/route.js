@@ -3,6 +3,7 @@ import connectDB from "@/app/lib/dbConnect";
 import Carrier from "@/app/lib/models/Carrier";
 import Car from "@/app/lib/models/Car";
 import Expense from "@/app/lib/models/Expense";
+import Driver from "@/app/lib/models/Driver";
 import { getSession } from "@/app/lib/auth/getSession";
 import mongoose from "mongoose";
 
@@ -23,11 +24,85 @@ export async function GET(request, { params }) {
       return NextResponse.json({ error: "Invalid carrier ID" }, { status: 400 });
     }
 
-    // Get carrier first to check permissions
-    const carrier = await Carrier.findById(carrierId).lean();
-    if (!carrier) {
+    const carrierObjectId = new mongoose.Types.ObjectId(carrierId);
+
+    // Get carrier with populated truck and drivers data using aggregation
+    const carriers = await Carrier.aggregate([
+      { $match: { _id: carrierObjectId } },
+      // Lookup truck
+      {
+        $lookup: {
+          from: "trucks",
+          localField: "truck",
+          foreignField: "_id",
+          as: "truck",
+        },
+      },
+      // Unwind truck (should be single or null)
+      {
+        $unwind: {
+          path: "$truck",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      // Lookup drivers for truck
+      {
+        $lookup: {
+          from: "drivers",
+          localField: "truck.drivers",
+          foreignField: "_id",
+          as: "truck.drivers",
+        },
+      },
+      // Project truck drivers with only needed fields
+      {
+        $addFields: {
+          "truck.drivers": {
+            $map: {
+              input: "$truck.drivers",
+              as: "driver",
+              in: {
+                _id: "$$driver._id",
+                name: "$$driver.name",
+                phone: "$$driver.phone",
+                email: "$$driver.email",
+              },
+            },
+          },
+        },
+      },
+      // Format truckData for consistency
+      {
+        $addFields: {
+          truckData: {
+            $cond: {
+              if: { $ne: ["$truck", null] },
+              then: {
+                _id: "$truck._id",
+                name: "$truck.name",
+                number: "$truck.number",
+                drivers: "$truck.drivers",
+                currentMeterReading: "$truck.currentMeterReading",
+              },
+              else: null,
+            },
+          },
+        },
+      },
+      // Include meterReadingAtTrip and distance in the output
+      {
+        $addFields: {
+          meterReadingAtTrip: 1,
+          distance: 1,
+        },
+      },
+    ]);
+
+    if (!carriers || carriers.length === 0) {
       return NextResponse.json({ error: "Carrier not found" }, { status: 404 });
     }
+
+    const carrier = carriers[0];
 
     // Check permissions
     if (session.role !== "super_admin" && carrier.userId.toString() !== session.userId) {
@@ -48,7 +123,8 @@ export async function GET(request, { params }) {
         .sort({ date: 1 })
         .lean(),
       Expense.find({ carrier: carrierId })
-        .select("_id category amount details liters pricePerLiter date")
+        .select("_id category amount details liters pricePerLiter date driverRentDriver")
+        .populate("driverRentDriver", "name")
         .sort({ date: -1, createdAt: -1 })
         .lean(),
     ]);

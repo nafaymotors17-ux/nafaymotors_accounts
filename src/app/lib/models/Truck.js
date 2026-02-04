@@ -7,11 +7,11 @@ const TruckSchema = new mongoose.Schema({
     trim: true,
     uppercase: true,
   },
-  // Driver assigned to this truck
-  driver: {
+  // Drivers assigned to this truck (array to support multiple drivers)
+  drivers: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: "Driver",
-  },
+  }],
   // Truck/Vehicle number or identifier
   number: {
     type: String,
@@ -20,11 +20,6 @@ const TruckSchema = new mongoose.Schema({
   },
   // Current meter reading (odometer reading)
   currentMeterReading: {
-    type: Number,
-    default: 0,
-  },
-  // Total kilometers traveled
-  totalKms: {
     type: Number,
     default: 0,
   },
@@ -38,6 +33,33 @@ const TruckSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  // Last maintenance date
+  lastMaintenanceDate: {
+    type: Date,
+  },
+  // Maintenance history (array of maintenance records)
+  maintenanceHistory: [{
+    date: {
+      type: Date,
+      default: Date.now,
+    },
+    kmReading: {
+      type: Number,
+      required: true,
+    },
+    details: {
+      type: String,
+      trim: true,
+    },
+    cost: {
+      type: Number,
+      min: 0,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  }],
   // User who created this truck
   userId: {
     type: mongoose.Schema.Types.ObjectId,

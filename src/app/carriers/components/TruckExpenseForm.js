@@ -1,22 +1,17 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
-import { getAllDrivers } from "@/app/lib/carriers-actions/drivers";
 
 const CATEGORIES = [
-  { value: "fuel", label: "Fuel" },
-  { value: "driver_rent", label: "Driver Rent" },
-  { value: "taxes", label: "Taxes" },
-  { value: "tool_taxes", label: "Tool Taxes" },
-  { value: "on_road", label: "On Road" },
   { value: "maintenance", label: "Maintenance" },
+  { value: "fuel", label: "Fuel" },
   { value: "tyre", label: "Tyre" },
   { value: "others", label: "Others" },
 ];
 
-export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
+export default function TruckExpenseForm({ truckId, truck, expense, onClose }) {
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -26,18 +21,14 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
   const [details, setDetails] = useState(expense?.details || "");
   const [liters, setLiters] = useState(expense?.liters?.toString() || "");
   const [pricePerLiter, setPricePerLiter] = useState(expense?.pricePerLiter?.toString() || "");
-  const [driverId, setDriverId] = useState(
-    expense?.driverRentDriver?.toString() || expense?.driverRentDriver?._id?.toString() || expense?.driver?.toString() || expense?.driver?._id?.toString() || ""
-  );
+  const [tyreNumber, setTyreNumber] = useState(expense?.tyreNumber || "");
+  const [tyreInfo, setTyreInfo] = useState(expense?.tyreInfo || "");
   const [meterReading, setMeterReading] = useState(
     expense?.meterReading?.toString() || ""
   );
   const [date, setDate] = useState(
     expense?.date ? new Date(expense.date).toISOString().split("T")[0] : new Date().toISOString().split("T")[0]
   );
-
-  // Get drivers from truck (if trip has truck with drivers)
-  const truckDrivers = trip?.truckData?.drivers || [];
 
   // Calculate amount for fuel expenses
   useEffect(() => {
@@ -47,27 +38,18 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
         setAmount(calculated.toFixed(2));
       }
     }
-    // Clear driver when switching away from driver_rent
-    if (category !== "driver_rent" && driverId) {
-      setDriverId("");
-    }
-    // Auto-select driver if truck has only one driver and we're creating a new expense
-    if (category === "driver_rent" && !expense && truckDrivers.length === 1 && !driverId) {
-      const singleDriver = truckDrivers[0];
-      setDriverId(singleDriver._id?.toString() || singleDriver.toString());
-    }
     // Auto-populate meter reading for maintenance expenses from truck's current meter reading
-    if (category === "maintenance" && !expense && trip?.truckData?.currentMeterReading) {
-      const currentMeter = trip.truckData.currentMeterReading;
+    if (category === "maintenance" && !expense && truck?.currentMeterReading) {
+      const currentMeter = truck.currentMeterReading;
       if (!meterReading || meterReading === "") {
         setMeterReading(currentMeter.toString());
       }
     }
-  }, [category, liters, pricePerLiter, truckDrivers, expense, trip, meterReading]);
+  }, [category, liters, pricePerLiter, truck, expense, meterReading]);
 
   const createExpenseMutation = useMutation({
     mutationFn: async (data) => {
-      const response = await fetch(`/api/carriers/${carrierId}/expenses`, {
+      const response = await fetch(`/api/trucks/${truckId}/expenses`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -78,18 +60,11 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
       }
       return response.json();
     },
-    onSuccess: async () => {
-      // Invalidate and refetch queries to refresh the trip data immediately
-      queryClient.invalidateQueries({ queryKey: ["trip", carrierId] });
-      await queryClient.refetchQueries({ queryKey: ["trip", carrierId] });
-      queryClient.invalidateQueries({ queryKey: ["carriers"] });
-      queryClient.invalidateQueries({ queryKey: ["driverRentPayments"] });
-    },
   });
 
   const updateExpenseMutation = useMutation({
     mutationFn: async (data) => {
-      const response = await fetch(`/api/carriers/${carrierId}/expenses/${expense._id}`, {
+      const response = await fetch(`/api/trucks/${truckId}/expenses/${expense._id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -100,13 +75,6 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
       }
       return response.json();
     },
-    onSuccess: async () => {
-      // Invalidate and refetch queries to refresh the trip data immediately
-      queryClient.invalidateQueries({ queryKey: ["trip", carrierId] });
-      await queryClient.refetchQueries({ queryKey: ["trip", carrierId] });
-      queryClient.invalidateQueries({ queryKey: ["carriers"] });
-      queryClient.invalidateQueries({ queryKey: ["driverRentPayments"] });
-    },
   });
 
   const handleSubmit = async (e) => {
@@ -115,6 +83,13 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
     setError(null);
 
     try {
+      // Validate amount for tyre, maintenance, and others expenses
+      if ((category === "tyre" || category === "maintenance" || category === "others") && (!amount || parseFloat(amount) <= 0)) {
+        setError("Amount is required and must be greater than 0");
+        setIsSubmitting(false);
+        return;
+      }
+
       const expenseData = {
         category,
         amount: parseFloat(amount) || 0,
@@ -126,14 +101,10 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
         if (liters) expenseData.liters = parseFloat(liters);
         if (pricePerLiter) expenseData.pricePerLiter = parseFloat(pricePerLiter);
       }
-
-      if (category === "driver_rent") {
-        if (!driverId) {
-          setError("Please select a driver for driver rent expense");
-          setIsSubmitting(false);
-          return;
-        }
-        expenseData.driver = driverId;
+      
+      if (category === "tyre") {
+        if (tyreNumber) expenseData.tyreNumber = tyreNumber.trim();
+        if (tyreInfo) expenseData.tyreInfo = tyreInfo.trim();
       }
 
       if (category === "maintenance") {
@@ -148,7 +119,9 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
 
       onClose();
     } catch (err) {
-      setError(err.message || "Failed to save expense");
+      console.error("Error saving expense:", err);
+      const errorMessage = err.message || "Failed to save expense";
+      setError(errorMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -237,81 +210,62 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
             </>
           )}
 
-          {category === "driver_rent" && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Driver *
-              </label>
-              {truckDrivers.length > 0 ? (
-                <>
-                  <select
-                    value={driverId}
-                    onChange={(e) => setDriverId(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    required
-                    disabled={isSubmitting}
-                  >
-                    <option value="">Select a driver</option>
-                    {truckDrivers.map((driver) => {
-                      const driverIdValue = driver._id?.toString() || driver.toString();
-                      const driverName = typeof driver === 'object' ? driver.name : driver;
-                      return (
-                        <option key={driverIdValue} value={driverIdValue}>
-                          {driverName}
-                        </option>
-                      );
-                    })}
-                  </select>
-                  {truckDrivers.length === 1 && !expense && (
-                    <p className="text-xs text-blue-600 mt-1">
-                      Auto-selected: {typeof truckDrivers[0] === 'object' ? truckDrivers[0].name : truckDrivers[0]}
-                    </p>
-                  )}
-                  {truckDrivers.length > 1 && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      Select from {truckDrivers.length} drivers assigned to this truck
-                    </p>
-                  )}
-                </>
-              ) : (
-                <>
-                  <select
-                    value={driverId}
-                    onChange={(e) => setDriverId(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-red-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-red-50"
-                    required
-                    disabled={isSubmitting}
-                  >
-                    <option value="">No drivers assigned to truck</option>
-                  </select>
-                  <p className="text-xs text-red-500 mt-1">
-                    This trip's truck has no drivers assigned. Please assign drivers to the truck first.
-                  </p>
-                </>
-              )}
-            </div>
+          {category === "maintenance" && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Meter Reading (km)
+                </label>
+                <input
+                  type="number"
+                  step="1"
+                  value={meterReading}
+                  onChange={(e) => setMeterReading(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Enter current odometer reading"
+                  disabled={isSubmitting}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  {truck?.currentMeterReading 
+                    ? `Current truck meter: ${truck.currentMeterReading.toLocaleString("en-US")} km (auto-filled)`
+                    : "Record the vehicle's odometer reading at the time of maintenance"}
+                </p>
+              </div>
+              <div className="bg-green-50 p-2 rounded text-xs text-green-700">
+                <strong>Note:</strong> This maintenance expense will update the truck's last maintenance record.
+              </div>
+            </>
           )}
 
-          {category === "maintenance" && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Meter Reading (km)
-              </label>
-              <input
-                type="number"
-                step="1"
-                value={meterReading}
-                onChange={(e) => setMeterReading(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Enter current odometer reading"
-                disabled={isSubmitting}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                {trip?.truckData?.currentMeterReading 
-                  ? `Current truck meter: ${trip.truckData.currentMeterReading.toLocaleString("en-US")} km (auto-filled)`
-                  : "Record the vehicle's odometer reading at the time of maintenance"}
-              </p>
-            </div>
+          {category === "tyre" && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Tyre Number
+                </label>
+                <input
+                  type="text"
+                  value={tyreNumber}
+                  onChange={(e) => setTyreNumber(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="e.g., TYRE-001"
+                  disabled={isSubmitting}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Tyre Information
+                </label>
+                <textarea
+                  value={tyreInfo}
+                  onChange={(e) => setTyreInfo(e.target.value)}
+                  rows="3"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                  placeholder="Enter tyre details (brand, size, position, etc.)..."
+                  disabled={isSubmitting}
+                />
+              </div>
+            </>
           )}
 
           <div>

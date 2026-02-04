@@ -18,6 +18,11 @@ const CompanySchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
+  // Bank details for invoices (supports line breaks)
+  bankDetails: {
+    type: String,
+    trim: true,
+  },
   // Credit balance (positive = company has credit, negative = company owes)
   creditBalance: {
     type: Number,

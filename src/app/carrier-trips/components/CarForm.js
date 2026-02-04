@@ -1,15 +1,15 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createMultipleCars } from "@/app/lib/carriers-actions/cars";
 import { useUser } from "@/app/components/UserContext";
 import { X, Plus, Trash2, FileSpreadsheet, Upload } from "lucide-react";
 import * as XLSX from "xlsx";
 
 export default function CarForm({ carrier, companies, users = [], car, onClose }) {
-
+  const queryClient = useQueryClient();
   const { user } = useUser();
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [selectedUserId, setSelectedUserId] = useState("");
   const [isImporting, setIsImporting] = useState(false);
@@ -258,16 +258,35 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
     }
   };
 
+  const createCarsMutation = useMutation({
+    mutationFn: async ({ carsData, carrierId, userId }) => {
+      return await createMultipleCars(carsData, carrierId, userId);
+    },
+    onSuccess: async (result, variables) => {
+      if (result.success) {
+        // Invalidate and refetch queries to refresh the trip data immediately
+        const carrierId = variables.carrierId;
+        queryClient.invalidateQueries({ queryKey: ["trip", carrierId] });
+        await queryClient.refetchQueries({ queryKey: ["trip", carrierId] });
+        queryClient.invalidateQueries({ queryKey: ["carriers"] });
+        queryClient.invalidateQueries({ queryKey: ["carrierCars"] });
+        // Close modal after successful creation
+        onClose();
+      }
+    },
+    onError: (error) => {
+      setError(error.message || "Failed to add cars");
+    },
+  });
+
   async function handleSubmit(event) {
     event.preventDefault();
-    setIsSubmitting(true);
     setError(null);
 
     try {
       // Validate carrier exists and has _id
       if (!carrier || !carrier._id) {
         setError("Invalid trip/carrier. Please try again.");
-    
         return;
       }
 
@@ -294,20 +313,17 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
           date: row.date,
         };
       });
-      const result = await createMultipleCars(carsData, carrierId, user?.role === "super_admin" && selectedUserId ? selectedUserId : null);
-      if (result.success) {
-        // Close modal - onClose callback will handle refresh
-        onClose();
-      } else {
-        setError(result.error || "Failed to add cars");
-      }
+      
+      const userId = user?.role === "super_admin" && selectedUserId ? selectedUserId : null;
+      await createCarsMutation.mutateAsync({ carsData, carrierId, userId });
     } catch (err) {
-      setError("An unexpected error occurred");
+      setError(err.message || "An unexpected error occurred");
       console.error("[CarForm] Error:", err);
-    } finally {
-      setIsSubmitting(false);
     }
   }
+  
+  // Use mutation's pending state
+  const isSubmittingState = createCarsMutation.isPending;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -317,7 +333,7 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600"
-            disabled={isSubmitting}
+            disabled={isSubmittingState}
           >
             <X className="w-5 h-5" />
           </button>
@@ -340,11 +356,11 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
                     onChange={handleExcelImport}
                     className="hidden"
                     id="excel-import-input"
-                    disabled={isSubmitting || isImporting}
+                    disabled={isSubmittingState || isImporting}
                   />
                   <label
                     htmlFor="excel-import-input"
-                    className={`px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-1 cursor-pointer ${(isSubmitting || isImporting) ? "opacity-50 cursor-not-allowed" : ""}`}
+                    className={`px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-1 cursor-pointer ${(isSubmittingState || isImporting) ? "opacity-50 cursor-not-allowed" : ""}`}
                   >
                     {isImporting ? (
                       <>
@@ -366,7 +382,7 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
                   type="button"
                   onClick={addCarRow}
                   className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center gap-1"
-                  disabled={isSubmitting || isImporting}
+                    disabled={isSubmittingState || isImporting}
                 >
                   <Plus className="w-4 h-4" />
                   Add Row
@@ -382,7 +398,7 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
                     value={selectedUserId}
                     onChange={(e) => setSelectedUserId(e.target.value)}
                     className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
-                    disabled={isSubmitting}
+                    disabled={isSubmittingState}
                   >
                     <option value="">Your own account</option>
                     {users.map((u) => (
@@ -503,16 +519,16 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
               type="button"
               onClick={onClose}
               className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-              disabled={isSubmitting}
+              disabled={isSubmittingState}
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmittingState}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed"
             >
-              {isSubmitting
+              {isSubmittingState
                 ? "Saving..."
                 : `Add ${carRows.length} Car${carRows.length === 1 ? '' : 's'}`}
             </button>

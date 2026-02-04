@@ -1,5 +1,4 @@
-"use server";
-
+import { NextResponse } from "next/server";
 import { getSession } from "@/app/lib/auth/getSession";
 
 export async function GET(request) {
@@ -20,13 +19,13 @@ export async function GET(request) {
     session = await getSession(session);
     
     if (!session) {
-      return Response.json({ success: false, user: null }, { status: 401 });
+      return NextResponse.json({ success: false, user: null }, { status: 401 });
     }
 
-    return Response.json({ success: true, user: session });
+    return NextResponse.json({ success: true, user: session });
   } catch (error) {
     console.error("Error getting user session:", error);
-    return Response.json(
+    return NextResponse.json(
       { success: false, error: "Internal server error" },
       { status: 500 }
     );

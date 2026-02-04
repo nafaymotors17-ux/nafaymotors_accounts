@@ -25,6 +25,10 @@ const UserSchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
+  bankDetails: {
+    type: String,
+    trim: true,
+  },
 });
 
 // Simple password comparison

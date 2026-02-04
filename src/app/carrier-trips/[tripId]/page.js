@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, Plus, Trash2, DollarSign, Truck } from "lucide-react";
+import { X, Plus, Trash2, DollarSign, Truck, Edit, Calendar } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
 import ExpenseForm from "../components/ExpenseForm";
 import CarForm from "../components/CarForm";
@@ -17,6 +17,8 @@ const CATEGORY_LABELS = {
   tool_taxes: "Tool Taxes",
   on_road: "On Road",
   others: "Others",
+  maintenance: "Maintenance",
+  tyre: "Tyre",
 };
 
 export default function TripDetailPage() {
@@ -26,6 +28,7 @@ export default function TripDetailPage() {
   const tripId = params.tripId;
 
   const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [editingExpense, setEditingExpense] = useState(null);
   const [showCarForm, setShowCarForm] = useState(false);
 
   // Fetch trip data (includes expenses and cars in one call) - Priority query
@@ -38,6 +41,8 @@ export default function TripDetailPage() {
     },
     enabled: !!tripId,
     staleTime: 0, // Always fetch fresh data
+    refetchOnMount: true, // Refetch when component mounts
+    refetchOnWindowFocus: false, // Don't refetch on window focus
   });
 
   // Fetch companies for CarForm - Non-blocking, can load in background
@@ -59,11 +64,30 @@ export default function TripDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
       queryClient.invalidateQueries({ queryKey: ["carriers"] });
+      // Invalidate driver rent queries so modal shows updated data
+      queryClient.invalidateQueries({ queryKey: ["driverRentPayments"] });
     },
   });
 
   const deleteCarMutation = useMutation({
     mutationFn: deleteCar,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
+      queryClient.invalidateQueries({ queryKey: ["carriers"] });
+    },
+  });
+
+  const syncCarsDateMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/carriers/${tripId}/sync-cars-date`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to sync cars date");
+      }
+      return response.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
       queryClient.invalidateQueries({ queryKey: ["carriers"] });
@@ -80,15 +104,21 @@ export default function TripDetailPage() {
     deleteCarMutation.mutate(carId);
   };
 
-  const handleCloseExpenseForm = () => {
+  const handleCloseExpenseForm = async () => {
     setShowExpenseForm(false);
+    // Refetch immediately to show updated data
     queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
+    await queryClient.refetchQueries({ queryKey: ["trip", tripId] });
     queryClient.invalidateQueries({ queryKey: ["carriers"] });
+    // Invalidate driver rent queries so modal shows updated data
+    queryClient.invalidateQueries({ queryKey: ["driverRentPayments"] });
   };
 
-  const handleCloseCarForm = () => {
+  const handleCloseCarForm = async () => {
     setShowCarForm(false);
+    // Refetch immediately to show updated data
     queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
+    await queryClient.refetchQueries({ queryKey: ["trip", tripId] });
     queryClient.invalidateQueries({ queryKey: ["carriers"] });
   };
 
@@ -168,8 +198,33 @@ export default function TripDetailPage() {
               </h1>
               <div className="flex flex-wrap gap-3 text-xs text-gray-600">
                 <div><span className="font-medium">Date:</span> {formatDate(trip.date)}</div>
-                {trip.carrierName && <div><span className="font-medium">Carrier:</span> {trip.carrierName}</div>}
-                {trip.driverName && <div><span className="font-medium">Driver:</span> {trip.driverName}</div>}
+                {trip.truckData?.name && (
+                  <div>
+                    <span className="font-medium">Truck:</span> {trip.truckData.name}
+                    {trip.truckData.number && ` (${trip.truckData.number})`}
+                  </div>
+                )}
+                {trip.carrierName && !trip.truckData?.name && (
+                  <div><span className="font-medium">Carrier:</span> {trip.carrierName}</div>
+                )}
+                {trip.truckData?.drivers && trip.truckData.drivers.length > 0 ? (
+                  <div>
+                    <span className="font-medium">Drivers:</span>{" "}
+                    {trip.truckData.drivers.map(d => d.name).join(", ")}
+                  </div>
+                ) : trip.driverName ? (
+                  <div><span className="font-medium">Driver:</span> {trip.driverName}</div>
+                ) : null}
+                {trip.meterReadingAtTrip && (
+                  <div>
+                    <span className="font-medium">Meter at Trip:</span> {trip.meterReadingAtTrip.toLocaleString("en-US")} km
+                  </div>
+                )}
+                {trip.distance && (
+                  <div>
+                    <span className="font-medium">Distance Traveled:</span> {trip.distance.toLocaleString("en-US")} km
+                  </div>
+                )}
               </div>
             </div>
             <button
@@ -182,7 +237,7 @@ export default function TripDetailPage() {
           </div>
 
           {/* Compact Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             <div className="bg-green-50 p-3 rounded">
               <p className="text-[10px] text-gray-600 mb-0.5">Revenue</p>
               <p className="text-lg font-bold text-green-600">
@@ -205,6 +260,22 @@ export default function TripDetailPage() {
               <p className="text-[10px] text-gray-600 mb-0.5">Cars</p>
               <p className="text-lg font-bold text-gray-800">{cars.length}</p>
             </div>
+            {trip.meterReadingAtTrip && (
+              <div className="bg-blue-50 p-3 rounded">
+                <p className="text-[10px] text-gray-600 mb-0.5">Meter at Trip</p>
+                <p className="text-lg font-bold text-blue-600">
+                  {trip.meterReadingAtTrip.toLocaleString("en-US")} km
+                </p>
+              </div>
+            )}
+            {trip.distance && (
+              <div className="bg-purple-50 p-3 rounded">
+                <p className="text-[10px] text-gray-600 mb-0.5">Distance</p>
+                <p className="text-lg font-bold text-purple-600">
+                  {trip.distance.toLocaleString("en-US")} km
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Compact Details and Notes */}
@@ -254,9 +325,11 @@ export default function TripDetailPage() {
                       <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-600">#</th>
                       <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-600">Date</th>
                       <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-600">Category</th>
+                      <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-600">Driver</th>
                       <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-600">Details</th>
                       <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-600">Liters</th>
                       <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-600">Price/L</th>
+                      <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-600">Meter (km)</th>
                       <th className="px-2 py-1.5 text-right text-[10px] font-medium text-gray-600">Amount</th>
                       <th className="px-2 py-1.5 text-center text-[10px] font-medium text-gray-600">Actions</th>
                     </tr>
@@ -271,6 +344,11 @@ export default function TripDetailPage() {
                         <td className="px-2 py-1.5 text-[10px]">
                           {CATEGORY_LABELS[expense.category] || expense.category}
                         </td>
+                        <td className="px-2 py-1.5 text-[10px]">
+                          {expense.category === "driver_rent" && (expense.driverRentDriver?.name || expense.driver?.name)
+                            ? (expense.driverRentDriver?.name || expense.driver?.name)
+                            : "-"}
+                        </td>
                         <td className="px-2 py-1.5 text-[10px] max-w-[150px] truncate" title={expense.details || ""}>
                           {expense.details || "-"}
                         </td>
@@ -280,24 +358,41 @@ export default function TripDetailPage() {
                         <td className="px-2 py-1.5 text-[10px]">
                           {expense.category === "fuel" && expense.pricePerLiter ? `R${expense.pricePerLiter.toFixed(2)}` : "-"}
                         </td>
+                        <td className="px-2 py-1.5 text-[10px]">
+                          {expense.category === "maintenance" && expense.meterReading 
+                            ? expense.meterReading.toLocaleString("en-US") 
+                            : "-"}
+                        </td>
                         <td className="px-2 py-1.5 text-right text-red-600 font-semibold text-[10px]">
                           R{expense.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
                         </td>
                         <td className="px-2 py-1.5 text-center">
-                          <button
-                            onClick={() => handleDeleteExpense(expense._id)}
-                            className="text-red-600 hover:text-red-800"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => {
+                                setEditingExpense(expense);
+                                setShowExpenseForm(true);
+                              }}
+                              className="text-blue-600 hover:text-blue-800"
+                              title="Edit"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteExpense(expense._id)}
+                              className="text-red-600 hover:text-red-800"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot className="bg-gray-100 sticky bottom-0">
                     <tr>
-                      <td colSpan="6" className="px-2 py-1.5 text-right font-semibold text-[10px]">
+                      <td colSpan="7" className="px-2 py-1.5 text-right font-semibold text-[10px]">
                         Total:
                       </td>
                       <td className="px-2 py-1.5 text-right text-red-600 font-bold text-[10px]">
@@ -315,13 +410,30 @@ export default function TripDetailPage() {
           <div className="bg-white rounded-lg shadow-sm p-4">
             <div className="flex justify-between items-center mb-3">
               <h2 className="text-base font-semibold text-gray-800">Cars ({cars.length})</h2>
-              <button
-                onClick={() => setShowCarForm(true)}
-                className="px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1.5 text-sm"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Add
-              </button>
+              <div className="flex gap-2">
+                {cars.length > 0 && (
+                  <button
+                    onClick={() => {
+                      if (confirm(`Copy trip date (${formatDate(trip.date)}) to all ${cars.length} cars?`)) {
+                        syncCarsDateMutation.mutate();
+                      }
+                    }}
+                    disabled={syncCarsDateMutation.isPending}
+                    className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 text-sm"
+                    title="Copy trip date to all cars"
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    {syncCarsDateMutation.isPending ? "Syncing..." : "Sync Date"}
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowCarForm(true)}
+                  className="px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1.5 text-sm"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add
+                </button>
+              </div>
             </div>
             {cars.length === 0 ? (
               <div className="text-center py-6 text-gray-500">
@@ -388,11 +500,16 @@ export default function TripDetailPage() {
       </div>
 
       {/* Expense Form Modal */}
-      {showExpenseForm && (
+      {showExpenseForm && trip && (
         <ExpenseForm
           carrierId={tripId}
-          expense={null}
-          onClose={handleCloseExpenseForm}
+          expense={editingExpense}
+          trip={trip}
+          onClose={() => {
+            setShowExpenseForm(false);
+            setEditingExpense(null);
+            handleCloseExpenseForm();
+          }}
         />
       )}
 

@@ -28,20 +28,6 @@ export async function getAllTrucks(searchParams = {}) {
       }
     }
 
-    // Filter by active status
-    if (searchParams.isActive !== undefined && searchParams.isActive !== "") {
-      const isActiveValue = searchParams.isActive === "true" || searchParams.isActive === true;
-      if (isActiveValue) {
-        query.$or = [
-          { isActive: true },
-          { isActive: { $exists: false } },
-          { isActive: null }
-        ];
-      } else {
-        query.isActive = false;
-      }
-    }
-
     // Search filter
     if (searchParams.search) {
       const searchTerm = decodeURIComponent(searchParams.search).trim();
@@ -55,35 +41,138 @@ export async function getAllTrucks(searchParams = {}) {
       }
     }
 
-    const trucks = await Truck.find(query)
-      .populate("driver", "name phone email licenseNumber")
-      .populate("userId", "username role")
-      .sort({ name: 1 })
-      .lean();
+    // Debug: Log the query being used
+    console.log("getAllTrucks - Query:", JSON.stringify(query, null, 2));
+    console.log("getAllTrucks - Session userId:", session.userId);
+    console.log("getAllTrucks - Session role:", session.role);
 
-    const serialized = trucks.map(truck => ({
-      ...truck,
-      _id: truck._id.toString(),
-      userId: truck.userId?.toString() || truck.userId,
-      driver: truck.driver ? {
-        _id: truck.driver._id?.toString() || truck.driver._id,
-        name: truck.driver.name,
-        phone: truck.driver.phone,
-        email: truck.driver.email,
-        licenseNumber: truck.driver.licenseNumber,
-      } : null,
-      user: truck.userId && typeof truck.userId === 'object' ? {
-        _id: truck.userId._id?.toString() || truck.userId._id,
-        username: truck.userId.username,
-        role: truck.userId.role
-      } : null,
-    }));
+    const trucks = await Truck.aggregate([
+      // Match trucks based on query
+      { $match: query },
+      // Lookup drivers
+      {
+        $lookup: {
+          from: "drivers",
+          localField: "drivers",
+          foreignField: "_id",
+          as: "drivers",
+        },
+      },
+      // Project only needed driver fields
+      {
+        $addFields: {
+          drivers: {
+            $map: {
+              input: "$drivers",
+              as: "driver",
+              in: {
+                _id: "$$driver._id",
+                name: "$$driver.name",
+                phone: "$$driver.phone",
+                email: "$$driver.email",
+                licenseNumber: "$$driver.licenseNumber",
+              },
+            },
+          },
+        },
+      },
+      // Lookup user
+      {
+        $lookup: {
+          from: "users",
+          localField: "userId",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      // Unwind user (should be single)
+      {
+        $unwind: {
+          path: "$user",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      // Project final fields
+      {
+        $project: {
+          _id: 1,
+          name: 1,
+          number: 1,
+          drivers: 1,
+          currentMeterReading: 1,
+          maintenanceInterval: 1,
+          lastMaintenanceKm: 1,
+          lastMaintenanceDate: 1,
+          userId: 1,
+          isActive: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          user: {
+            _id: "$user._id",
+            username: "$user.username",
+            role: "$user.role",
+          },
+        },
+      },
+      // Sort by name
+      { $sort: { name: 1 } },
+    ]);
 
-    return {
+    // Debug: Log results
+    console.log("getAllTrucks - Found trucks:", trucks.length);
+    if (trucks.length > 0) {
+      console.log("getAllTrucks - First truck sample:", JSON.stringify({
+        _id: trucks[0]._id?.toString(),
+        name: trucks[0].name,
+        driversCount: trucks[0].drivers?.length || 0,
+        drivers: trucks[0].drivers
+      }, null, 2));
+    }
+
+    // Convert ObjectIds to strings
+    const serialized = trucks.map(truck => {
+      // Ensure drivers are properly formatted
+      let drivers = [];
+      if (truck.drivers && Array.isArray(truck.drivers) && truck.drivers.length > 0) {
+        drivers = truck.drivers.map(d => {
+          // Handle both populated and unpopulated driver objects
+          if (d && typeof d === 'object') {
+            return {
+              _id: d._id?.toString() || d._id,
+              name: d.name || 'Unknown',
+              phone: d.phone || '',
+              email: d.email || '',
+              licenseNumber: d.licenseNumber || '',
+            };
+          }
+          return null;
+        }).filter(Boolean);
+      }
+      
+      return {
+        ...truck,
+        _id: truck._id.toString(),
+        userId: truck.userId?.toString() || truck.userId,
+        drivers: drivers,
+        user: truck.user ? {
+          _id: truck.user._id.toString(),
+          username: truck.user.username,
+          role: truck.user.role,
+        } : null,
+      };
+    });
+
+    const result = {
       trucks: JSON.parse(JSON.stringify(serialized)),
     };
+    
+    // Debug: Log final result
+    console.log("getAllTrucks - Returning trucks:", result.trucks.length);
+    
+    return result;
   } catch (error) {
     console.error("Error fetching trucks:", error);
+    console.error("Error stack:", error.stack);
     return { trucks: [] };
   }
 }
@@ -96,37 +185,110 @@ export async function getTruckById(truckId) {
       return { error: "Unauthorized" };
     }
 
-    const truck = await Truck.findById(truckId)
-      .populate("driver", "name phone email licenseNumber")
-      .populate("userId", "username role")
-      .lean();
+    if (!mongoose.Types.ObjectId.isValid(truckId)) {
+      return { error: "Invalid truck ID" };
+    }
 
-    if (!truck) {
+    const truckObjectId = new mongoose.Types.ObjectId(truckId);
+    
+    const trucks = await Truck.aggregate([
+      // Match specific truck
+      { $match: { _id: truckObjectId } },
+      // Lookup drivers
+      {
+        $lookup: {
+          from: "drivers",
+          localField: "drivers",
+          foreignField: "_id",
+          as: "drivers",
+        },
+      },
+      // Project only needed driver fields
+      {
+        $addFields: {
+          drivers: {
+            $map: {
+              input: "$drivers",
+              as: "driver",
+              in: {
+                _id: "$$driver._id",
+                name: "$$driver.name",
+                phone: "$$driver.phone",
+                email: "$$driver.email",
+                licenseNumber: "$$driver.licenseNumber",
+              },
+            },
+          },
+        },
+      },
+      // Lookup user
+      {
+        $lookup: {
+          from: "users",
+          localField: "userId",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      // Unwind user (should be single)
+      {
+        $unwind: {
+          path: "$user",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      // Project final fields
+      {
+        $project: {
+          _id: 1,
+          name: 1,
+          number: 1,
+          drivers: 1,
+          currentMeterReading: 1,
+          maintenanceInterval: 1,
+          lastMaintenanceKm: 1,
+          userId: 1,
+          isActive: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          user: {
+            _id: "$user._id",
+            username: "$user.username",
+            role: "$user.role",
+          },
+        },
+      },
+    ]);
+
+    if (!trucks || trucks.length === 0) {
       return { error: "Truck not found" };
     }
+
+    const truck = trucks[0];
 
     // Check permissions
     if (session.role !== "super_admin" && truck.userId?.toString() !== session.userId) {
       return { error: "Unauthorized" };
     }
 
+    // Convert ObjectIds to strings
     return {
       success: true,
       truck: JSON.parse(JSON.stringify({
         ...truck,
         _id: truck._id.toString(),
         userId: truck.userId?.toString() || truck.userId,
-        driver: truck.driver ? {
-          _id: truck.driver._id?.toString() || truck.driver._id,
-          name: truck.driver.name,
-          phone: truck.driver.phone,
-          email: truck.driver.email,
-          licenseNumber: truck.driver.licenseNumber,
-        } : null,
-        user: truck.userId && typeof truck.userId === 'object' ? {
-          _id: truck.userId._id?.toString() || truck.userId._id,
-          username: truck.userId.username,
-          role: truck.userId.role
+        drivers: (truck.drivers || []).map(d => ({
+          _id: d._id.toString(),
+          name: d.name,
+          phone: d.phone,
+          email: d.email,
+          licenseNumber: d.licenseNumber,
+        })),
+        user: truck.user ? {
+          _id: truck.user._id.toString(),
+          username: truck.user.username,
+          role: truck.user.role,
         } : null,
       })),
     };
@@ -145,15 +307,19 @@ export async function createTruck(formData) {
     }
 
     const name = formData.get("name")?.trim();
-    const driverId = formData.get("driverId")?.trim() || "";
+    const driverIds = formData.getAll("driverIds"); // Get all selected driver IDs
+    console.log("createTruck - driverIds received:", driverIds);
     const number = formData.get("number")?.trim() || "";
     const currentMeterReading = parseFloat(formData.get("currentMeterReading") || "0") || 0;
-    const totalKms = parseFloat(formData.get("totalKms") || "0") || 0;
     const maintenanceInterval = parseFloat(formData.get("maintenanceInterval") || "1000") || 1000;
     const lastMaintenanceKm = parseFloat(formData.get("lastMaintenanceKm") || "0") || 0;
 
     if (!name) {
       return { error: "Truck name is required" };
+    }
+
+    if (!driverIds || driverIds.length === 0) {
+      return { error: "At least one driver is required" };
     }
 
     // Super admin can select userId, regular users use their own
@@ -178,38 +344,58 @@ export async function createTruck(formData) {
       };
     }
 
-    // Validate driver if provided
-    let driverObjectId = null;
-    if (driverId) {
+    // Validate all drivers
+    const Driver = (await import("@/app/lib/models/Driver")).default;
+    const driverObjectIds = [];
+    
+    for (const driverId of driverIds) {
+      if (!driverId || !driverId.trim()) continue;
+      
       if (mongoose.Types.ObjectId.isValid(driverId)) {
-        driverObjectId = new mongoose.Types.ObjectId(driverId);
-        // Verify driver exists and belongs to the same user (or super admin can use any)
-        const Driver = (await import("@/app/lib/models/Driver")).default;
+        const driverObjectId = new mongoose.Types.ObjectId(driverId);
         const driver = await Driver.findById(driverObjectId);
         if (!driver) {
-          return { error: "Selected driver not found" };
+          return { error: `Driver with ID ${driverId} not found` };
         }
         if (session.role !== "super_admin" && driver.userId.toString() !== targetUserId.toString()) {
-          return { error: "Selected driver does not belong to this user" };
+          return { error: `Driver "${driver.name}" does not belong to this user` };
         }
+        driverObjectIds.push(driverObjectId);
       } else {
-        return { error: "Invalid driver ID" };
+        return { error: `Invalid driver ID: ${driverId}` };
       }
+    }
+
+    if (driverObjectIds.length === 0) {
+      return { error: "At least one valid driver is required" };
     }
 
     const truck = new Truck({
       name: name.trim().toUpperCase(),
-      driver: driverObjectId,
+      drivers: driverObjectIds,
       number: number.trim().toUpperCase(),
       currentMeterReading,
-      totalKms,
       maintenanceInterval,
       lastMaintenanceKm,
       userId: targetUserId,
       isActive: true,
     });
 
+    console.log("createTruck - Saving truck:", {
+      name: truck.name,
+      userId: truck.userId?.toString(),
+      driversCount: truck.drivers?.length || 0,
+      driverIds: truck.drivers?.map(d => d.toString())
+    });
+
     await truck.save();
+    
+    console.log("createTruck - Truck saved successfully:", {
+      _id: truck._id?.toString(),
+      name: truck.name,
+      userId: truck.userId?.toString()
+    });
+    
     revalidatePath("/carriers");
 
     return {
@@ -244,13 +430,11 @@ export async function updateTruck(truckId, formData) {
     }
 
     const name = formData.get("name")?.trim();
-    const driverId = formData.get("driverId")?.trim() || "";
+    const newDriverIds = formData.getAll("newDriverIds"); // Get new drivers to add
     const number = formData.get("number")?.trim() || "";
     const currentMeterReading = parseFloat(formData.get("currentMeterReading") || "0") || 0;
-    const totalKms = parseFloat(formData.get("totalKms") || "0") || 0;
     const maintenanceInterval = parseFloat(formData.get("maintenanceInterval") || "1000") || 1000;
     const lastMaintenanceKm = parseFloat(formData.get("lastMaintenanceKm") || "0") || 0;
-    const isActive = formData.get("isActive") === "true" || formData.get("isActive") === true;
 
     if (!name) {
       return { error: "Truck name is required" };
@@ -271,33 +455,57 @@ export async function updateTruck(truckId, formData) {
       }
     }
 
-    // Validate driver if provided
-    let driverObjectId = null;
-    if (driverId) {
-      if (mongoose.Types.ObjectId.isValid(driverId)) {
-        driverObjectId = new mongoose.Types.ObjectId(driverId);
-        // Verify driver exists and belongs to the same user (or super admin can use any)
-        const Driver = (await import("@/app/lib/models/Driver")).default;
-        const driver = await Driver.findById(driverObjectId);
-        if (!driver) {
-          return { error: "Selected driver not found" };
-        }
-        if (session.role !== "super_admin" && driver.userId.toString() !== truck.userId.toString()) {
-          return { error: "Selected driver does not belong to this user" };
-        }
-      } else {
-        return { error: "Invalid driver ID" };
-      }
-    }
+    // Get existing driver IDs (keep them - they cannot be removed)
+    const existingDriverIds = (truck.drivers || []).map(d => d.toString());
 
+    // Validate and process new drivers to add
+    if (newDriverIds && newDriverIds.length > 0) {
+      const Driver = (await import("@/app/lib/models/Driver")).default;
+      const newDriverObjectIds = [];
+      
+      for (const driverId of newDriverIds) {
+        if (!driverId || !driverId.trim()) continue;
+        
+        // Skip if driver is already assigned
+        if (existingDriverIds.includes(driverId)) {
+          continue;
+        }
+        
+        if (mongoose.Types.ObjectId.isValid(driverId)) {
+          const driverObjectId = new mongoose.Types.ObjectId(driverId);
+          const driver = await Driver.findById(driverObjectId);
+          if (!driver) {
+            return { error: `Driver with ID ${driverId} not found` };
+          }
+          if (session.role !== "super_admin" && driver.userId.toString() !== truck.userId.toString()) {
+            return { error: `Driver "${driver.name}" does not belong to this user` };
+          }
+          newDriverObjectIds.push(driverObjectId);
+        } else {
+          return { error: `Invalid driver ID: ${driverId}` };
+        }
+      }
+
+      // Combine existing drivers with new ones (avoid duplicates)
+      const allDriverIds = [
+        ...existingDriverIds.map(id => new mongoose.Types.ObjectId(id)),
+        ...newDriverObjectIds
+      ];
+      
+      // Remove duplicates
+      const uniqueDriverIds = [...new Set(allDriverIds.map(id => id.toString()))]
+        .map(id => new mongoose.Types.ObjectId(id));
+      
+      truck.drivers = uniqueDriverIds;
+    }
+    // If no new drivers provided, keep existing drivers (they are locked)
+
+    // Update other fields
     truck.name = name.trim().toUpperCase();
-    truck.driver = driverObjectId;
     truck.number = number.trim().toUpperCase();
     truck.currentMeterReading = currentMeterReading;
-    truck.totalKms = totalKms;
     truck.maintenanceInterval = maintenanceInterval;
     truck.lastMaintenanceKm = lastMaintenanceKm;
-    truck.isActive = isActive;
 
     await truck.save();
     revalidatePath("/carriers");

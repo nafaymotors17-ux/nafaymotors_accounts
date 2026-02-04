@@ -135,7 +135,6 @@ export async function createDriver(formData) {
     const email = formData.get("email")?.trim() || "";
     const licenseNumber = formData.get("licenseNumber")?.trim() || "";
     const address = formData.get("address")?.trim() || "";
-    const notes = formData.get("notes")?.trim() || "";
 
     if (!name) {
       return { error: "Driver name is required" };
@@ -169,7 +168,6 @@ export async function createDriver(formData) {
       email,
       licenseNumber,
       address,
-      notes,
       userId: targetUserId,
       isActive: true,
     });
@@ -213,8 +211,6 @@ export async function updateDriver(driverId, formData) {
     const email = formData.get("email")?.trim() || "";
     const licenseNumber = formData.get("licenseNumber")?.trim() || "";
     const address = formData.get("address")?.trim() || "";
-    const notes = formData.get("notes")?.trim() || "";
-    const isActive = formData.get("isActive") === "true" || formData.get("isActive") === true;
 
     if (!name) {
       return { error: "Driver name is required" };
@@ -240,8 +236,6 @@ export async function updateDriver(driverId, formData) {
     driver.email = email;
     driver.licenseNumber = licenseNumber;
     driver.address = address;
-    driver.notes = notes;
-    driver.isActive = isActive;
 
     await driver.save();
     revalidatePath("/drivers");

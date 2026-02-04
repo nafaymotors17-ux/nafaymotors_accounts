@@ -3,8 +3,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Search, X, Plus, Download } from "lucide-react";
-import { createCompany } from "@/app/lib/carriers-actions/companies";
+import { Search, X, Download } from "lucide-react";
 import CompanyInvoiceGenerator from "./CompanyInvoiceGenerator";
 
 export default function CompactFilters({ companies, carriers = [], isSuperAdmin = false, users = [], selectedTripIds = [] }) {
@@ -13,19 +12,7 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
   const queryClient = useQueryClient();
   
   // UI state only
-  const [showAddCompany, setShowAddCompany] = useState(false);
-  const [newCompanyName, setNewCompanyName] = useState("");
   const [showInvoiceGenerator, setShowInvoiceGenerator] = useState(false);
-
-  // Mutation for creating company
-  const createCompanyMutation = useMutation({
-    mutationFn: (name) => createCompany(name.trim()),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["companies"] });
-      setNewCompanyName("");
-      setShowAddCompany(false);
-    },
-  });
 
   const handleFilter = useCallback(async (e) => {
     e.preventDefault();
@@ -55,13 +42,6 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
     router.push(url);
   }, [router, isSuperAdmin]);
 
-  const handleCreateCompany = useCallback((e) => {
-    e.preventDefault();
-    if (!newCompanyName.trim()) {
-      return;
-    }
-    createCompanyMutation.mutate(newCompanyName);
-  }, [newCompanyName, createCompanyMutation]);
 
   const clearFilters = useCallback(() => {
     router.push("/carrier-trips");
@@ -132,30 +112,20 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
             <label className="text-[10px] font-medium text-gray-600 whitespace-nowrap">
               Company:
             </label>
-            <div className="flex gap-1">
-              <select
-                name="company"
-                key={`company-${selectedCompany}`}
-                defaultValue={selectedCompany}
-                className="w-40 px-1.5 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">All</option>
-                {companies.map((company) => (
-                  <option key={company._id} value={company.name}>
-                    {company.name}
-                    {isSuperAdmin && company.user?.username ? ` (${company.user.username})` : ""}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => setShowAddCompany(!showAddCompany)}
-                className="px-1.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 flex items-center justify-center"
-                title="Add New Company"
-              >
-                <Plus className="w-3 h-3" />
-              </button>
-            </div>
+            <select
+              name="company"
+              key={`company-${selectedCompany}`}
+              defaultValue={selectedCompany}
+              className="w-40 px-1.5 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">All</option>
+              {companies.map((company) => (
+                <option key={company._id} value={company.name}>
+                  {company.name}
+                  {isSuperAdmin && company.user?.username ? ` (${company.user.username})` : ""}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -269,50 +239,6 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
           </div>
         </div>
       </form>
-
-      {/* Add Company Form */}
-      {showAddCompany && (
-        <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded">
-          <form onSubmit={handleCreateCompany} className="flex gap-1.5">
-            <div className="flex-1">
-              <input
-                type="text"
-                value={newCompanyName}
-                onChange={(e) => {
-                  setNewCompanyName(e.target.value.toUpperCase());
-                }}
-                placeholder="Company name"
-                className="w-full px-2 py-1 text-xs border border-blue-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                autoFocus
-                disabled={createCompanyMutation.isPending}
-              />
-              {createCompanyMutation.isError && (
-                <p className="text-[10px] text-red-600 mt-0.5">
-                  {createCompanyMutation.error?.error || "Failed to create company"}
-                </p>
-              )}
-            </div>
-            <button
-              type="submit"
-              disabled={createCompanyMutation.isPending || !newCompanyName.trim()}
-              className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-            >
-              {createCompanyMutation.isPending ? "..." : "Add"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowAddCompany(false);
-                setNewCompanyName("");
-              }}
-              className="px-2 py-1 text-xs border border-gray-300 rounded text-gray-700 hover:bg-gray-50"
-              disabled={createCompanyMutation.isPending}
-            >
-              <X className="w-3 h-3" />
-            </button>
-          </form>
-        </div>
-      )}
     </div>
 
     {/* Invoice Generator Modal */}

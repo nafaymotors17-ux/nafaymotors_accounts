@@ -60,6 +60,16 @@ const CarrierSchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
+  // Distance traveled in this trip (in kilometers)
+  distance: {
+    type: Number,
+    min: 0,
+  },
+  // Meter reading at the time of trip creation (truck's current meter reading when trip was created)
+  meterReadingAtTrip: {
+    type: Number,
+    min: 0,
+  },
   createdAt: {
     type: Date,
     default: Date.now,

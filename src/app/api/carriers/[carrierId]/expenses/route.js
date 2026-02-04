@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import connectDB from "@/app/lib/dbConnect";
 import Expense from "@/app/lib/models/Expense";
 import Carrier from "@/app/lib/models/Carrier";
+import Truck from "@/app/lib/models/Truck";
 import { getSession } from "@/app/lib/auth/getSession";
 import mongoose from "mongoose";
 
@@ -33,6 +34,7 @@ export async function GET(request, { params }) {
 
     // Get all expenses for this carrier
     const expenses = await Expense.find({ carrier: carrierId })
+      .populate('driverRentDriver', 'name')
       .sort({ date: -1, createdAt: -1 })
       .lean();
 
@@ -75,7 +77,7 @@ export async function POST(request, { params }) {
     }
 
     const body = await request.json();
-    const { category, amount, details, liters, pricePerLiter, date } = body;
+    const { category, amount, details, liters, pricePerLiter, date, driver, meterReading } = body;
 
     // Validate required fields
     if (!category) {
@@ -86,7 +88,7 @@ export async function POST(request, { params }) {
     }
 
     // Validate category
-    const validCategories = ["fuel", "driver_rent", "taxes", "tool_taxes", "on_road", "others"];
+    const validCategories = ["fuel", "driver_rent", "taxes", "tool_taxes", "on_road", "maintenance", "tyre", "others"];
     if (!validCategories.includes(category)) {
       return NextResponse.json(
         { error: "Invalid category" },
@@ -112,6 +114,22 @@ export async function POST(request, { params }) {
       );
     }
 
+    // Validate driver for driver_rent category
+    if (category === "driver_rent" && !driver) {
+      return NextResponse.json(
+        { error: "Driver is required for driver rent expenses" },
+        { status: 400 }
+      );
+    }
+
+    // Validate driver ID if provided
+    if (driver && !mongoose.Types.ObjectId.isValid(driver)) {
+      return NextResponse.json(
+        { error: "Invalid driver ID" },
+        { status: 400 }
+      );
+    }
+
     // Create expense
     const expense = new Expense({
       carrier: carrierId,
@@ -120,10 +138,40 @@ export async function POST(request, { params }) {
       details: details || "",
       liters: category === "fuel" && liters ? parseFloat(liters) : undefined,
       pricePerLiter: category === "fuel" && pricePerLiter ? parseFloat(pricePerLiter) : undefined,
+      driverRentDriver: category === "driver_rent" && driver ? new mongoose.Types.ObjectId(driver) : undefined,
+      meterReading: category === "maintenance" && meterReading ? parseFloat(meterReading) : undefined,
       date: date ? new Date(date) : new Date(),
     });
 
     await expense.save();
+
+    // If this is a fuel expense and the carrier has a truck, also create synced expense for the truck
+    if (category === "fuel" && carrier.truck) {
+      const truckExpense = new Expense({
+        truck: carrier.truck,
+        category: "fuel",
+        amount: finalAmount,
+        details: (details || "").trim(),
+        liters: liters ? parseFloat(liters) : undefined,
+        pricePerLiter: pricePerLiter ? parseFloat(pricePerLiter) : undefined,
+        date: date ? new Date(date) : new Date(),
+        syncedFromExpense: expense._id, // Track the original expense
+      });
+      await truckExpense.save();
+    }
+
+    // If this is a driver_rent expense, also create synced expense for the driver
+    if (category === "driver_rent" && driver) {
+      const driverExpense = new Expense({
+        driver: new mongoose.Types.ObjectId(driver),
+        category: "driver_rent",
+        amount: finalAmount,
+        details: (details || "").trim(),
+        date: date ? new Date(date) : new Date(),
+        syncedFromExpense: expense._id, // Track the original expense
+      });
+      await driverExpense.save();
+    }
 
     // Update carrier's totalExpense (sum of all expenses)
     await updateCarrierTotalExpense(carrierId);

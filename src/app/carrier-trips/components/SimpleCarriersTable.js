@@ -378,8 +378,8 @@ export default function SimpleCarriersTable({
                     <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">USER</th>
                   )}
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">DATE</th>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">CARRIER</th>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">DRIVER</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">TRUCK/DRIVER</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">DISTANCE (km)</th>
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px] min-w-[200px]">NOTES</th>
                   <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">CARS</th>
                   <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">TOTAL</th>
@@ -573,16 +573,32 @@ function CarrierCarsRow({
           {formatDate(carrier.date)}
         </td>
         <td
-          className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[100px] truncate"
-          title={carrier.truckData?.name || carrier.carrierName || ""}
+          className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[150px]"
+          title={
+            `${carrier.truckData?.name || carrier.carrierName || ""} ${
+              carrier.truckData?.drivers && carrier.truckData.drivers.length > 0
+                ? `- ${carrier.truckData.drivers.map(d => d.name).join(", ")}`
+                : carrier.driverName ? `- ${carrier.driverName}` : ""
+            }`
+          }
         >
-          {carrier.truckData?.name || carrier.carrierName || "-"}
+          <div className="truncate">
+            <div className="font-medium">
+              {carrier.truckData?.name || carrier.carrierName || "-"}
+            </div>
+            {carrier.truckData?.drivers && carrier.truckData.drivers.length > 0 ? (
+              <div className="text-[9px] text-gray-500 truncate">
+                {carrier.truckData.drivers.map(d => d.name).join(", ")}
+              </div>
+            ) : carrier.driverName ? (
+              <div className="text-[9px] text-gray-500 truncate">
+                {carrier.driverName}
+              </div>
+            ) : null}
+          </div>
         </td>
-        <td
-          className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[100px] truncate"
-          title={carrier.truckData?.driver?.name || carrier.driverName || ""}
-        >
-          {carrier.truckData?.driver?.name || carrier.driverName || "-"}
+        <td className="px-2 py-1.5 text-gray-600 text-[10px] text-right">
+          {carrier.distance ? carrier.distance.toLocaleString("en-US") : "-"}
         </td>
         <td className="px-2 py-2 text-gray-700 text-[10px] min-w-[200px] max-w-[250px]">
           <TruncatedText text={carrier.notes} maxLines={2} />

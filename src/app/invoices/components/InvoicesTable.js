@@ -31,7 +31,7 @@ export default function InvoicesTable({
   onLimitChange,
   currentLimit = 10,
 }) {
-  const { user } = useUser();
+  const { user, fullUserData } = useUser();
   const queryClient = useQueryClient();
 
   // Derived value with useMemo
@@ -198,6 +198,9 @@ export default function InvoicesTable({
     if (!cars || cars.length === 0) return;
     setGeneratingPDF(true);
     try {
+      // Get sender (user) bank details from user context
+      const senderBankDetails = fullUserData?.bankDetails?.trim() || "";
+
       const doc = new jsPDF();
       const margin = 14;
       const pageWidth = doc.internal.pageSize.getWidth();
@@ -220,6 +223,21 @@ export default function InvoicesTable({
         doc.setTextColor(100);
         doc.text(invoice.senderAddress, margin, currentY);
         currentY += 6;
+      }
+
+      // Bank Details (if available)
+      if (senderBankDetails) {
+        currentY += 2;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(100);
+        const bankLines = senderBankDetails.split('\n');
+        bankLines.forEach((line) => {
+          if (line.trim()) {
+            doc.text(line.trim(), margin, currentY);
+            currentY += 4;
+          }
+        });
       }
 
       // TAX INVOICE Title
@@ -444,6 +462,28 @@ export default function InvoicesTable({
             finalY += 5;
           }
         });
+        finalY += 3;
+      }
+
+      // Bank Details section
+      if (senderBankDetails) {
+        finalY += 5;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(31, 41, 55);
+        doc.text("BANK DETAILS:", margin, finalY);
+        finalY += 6;
+        
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(100);
+        const bankLines = senderBankDetails.split('\n');
+        bankLines.forEach((line) => {
+          if (line.trim()) {
+            doc.text(line.trim(), margin + 5, finalY);
+            finalY += 4;
+          }
+        });
       }
 
       const fileName = `Invoice_${invoice.invoiceNumber}_${new Date(
@@ -458,7 +498,7 @@ export default function InvoicesTable({
     } finally {
       setGeneratingPDF(false);
     }
-  }, [getPaymentInfo]);
+  }, [getPaymentInfo, fullUserData]);
 
   const handleDownloadPDF = useCallback(() => {
     if (viewingInvoice && invoiceCars.length > 0) {
@@ -594,25 +634,49 @@ export default function InvoicesTable({
                       </td>
                       <td className="px-3 py-2 text-xs text-gray-600">
                         {invoice.tripNumbers && invoice.tripNumbers.length > 0 ? (
-                          <button
-                            onClick={() => {
-                              const trips = invoice.tripNumbers.map((tripNumber, idx) => ({
-                                tripNumber,
-                                date: invoice.tripDates && invoice.tripDates[idx] ? invoice.tripDates[idx] : null,
-                              }));
-                              setSelectedTrips(trips);
-                            }}
-                            className="text-left text-xs px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 transition-colors cursor-pointer hover:shadow-sm"
-                            title="Click to view all trips"
-                          >
-                            {invoice.tripNumbers[0]}
-                            {invoice.tripDates && invoice.tripDates[0] && (
-                              <>/{formatDate(invoice.tripDates[0])}</>
-                            )}
-                            {invoice.tripNumbers.length > 1 && (
-                              <span className="ml-1">...</span>
-                            )}
-                          </button>
+                          <div className="space-y-1">
+                            <button
+                              onClick={() => {
+                                const trips = invoice.tripNumbers.map((tripNumber, idx) => ({
+                                  tripNumber,
+                                  date: invoice.tripDates && invoice.tripDates[idx] ? invoice.tripDates[idx] : null,
+                                  tripId: invoice.tripIds && invoice.tripIds[idx] ? invoice.tripIds[idx] : null,
+                                  truckNumber: invoice.truckNumbers && invoice.truckNumbers[idx] ? invoice.truckNumbers[idx] : null,
+                                }));
+                                setSelectedTrips(trips);
+                              }}
+                              className="text-left text-xs px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 transition-colors cursor-pointer hover:shadow-sm"
+                              title="Click to view all trips"
+                            >
+                              <div className="flex items-center gap-1">
+                                {invoice.tripNumbers[0] && (
+                                  <a
+                                    href={`/carrier-trips?tripNumber=${encodeURIComponent(invoice.tripNumbers[0])}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      window.open(`/carrier-trips?tripNumber=${encodeURIComponent(invoice.tripNumbers[0])}`, '_blank');
+                                    }}
+                                    className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    {invoice.tripNumbers[0]}
+                                  </a>
+                                )}
+                                {invoice.tripDates && invoice.tripDates[0] && (
+                                  <span className="text-gray-500">/{formatDate(invoice.tripDates[0])}</span>
+                                )}
+                                {invoice.tripNumbers.length > 1 && (
+                                  <span className="ml-1 text-gray-500">...</span>
+                                )}
+                              </div>
+                              {invoice.truckNumbers && invoice.truckNumbers[0] && (
+                                <div className="text-[10px] text-gray-500 mt-0.5">
+                                  Truck: #{invoice.truckNumbers[0]}
+                                </div>
+                              )}
+                            </button>
+                          </div>
                         ) : (
                           <span className="text-gray-400 text-xs">-</span>
                         )}

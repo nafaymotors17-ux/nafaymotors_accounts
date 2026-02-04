@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download, X, Edit2 } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
 import { setCompanyCredit } from "@/app/lib/invoice-actions/company-balances";
+import { useUser } from "@/app/components/UserContext";
 import PaymentTrackingSection from "./PaymentTrackingSection";
 import TripDetailsModal from "./TripDetailsModal";
 
@@ -26,6 +27,10 @@ export default function InvoiceViewModal({
   const [editingCredit, setEditingCredit] = useState(false);
   const [newCreditBalance, setNewCreditBalance] = useState("");
   const queryClient = useQueryClient();
+  const { fullUserData } = useUser();
+  
+  // Get bank details from user context
+  const senderBankDetails = fullUserData?.bankDetails || "";
 
   const updateCreditMutation = useMutation({
     mutationFn: ({ companyName, newBalance }) => setCompanyCredit(companyName, parseFloat(newBalance) || 0),
@@ -104,6 +109,11 @@ export default function InvoiceViewModal({
                   <p className="text-sm text-gray-900">{invoice.senderCompanyName}</p>
                   {invoice.senderAddress && (
                     <p className="text-sm text-gray-600 mt-1">{invoice.senderAddress}</p>
+                  )}
+                  {senderBankDetails && (
+                    <div className="text-sm text-gray-600 mt-2 whitespace-pre-line">
+                      {senderBankDetails}
+                    </div>
                   )}
                 </div>
                 <div>

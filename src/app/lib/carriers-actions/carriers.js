@@ -6,6 +6,7 @@ import connectDB from "@/app/lib/dbConnect";
 import Carrier from "@/app/lib/models/Carrier";
 import Car from "@/app/lib/models/Car";
 import Expense from "@/app/lib/models/Expense";
+import Driver from "@/app/lib/models/Driver";
 import { getSession } from "@/app/lib/auth/getSession";
 
 export async function getAllCarriers(searchParams = {}) {
@@ -214,14 +215,9 @@ export async function getAllCarriers(searchParams = {}) {
             {
               $lookup: {
                 from: "drivers",
-                localField: "truckData.driver",
+                localField: "truckData.drivers",
                 foreignField: "_id",
-                as: "truckData.driver",
-              },
-            },
-            {
-              $addFields: {
-                "truckData.driver": { $arrayElemAt: ["$truckData.driver", 0] },
+                as: "truckData.drivers",
               },
             },
             {
@@ -235,7 +231,8 @@ export async function getAllCarriers(searchParams = {}) {
                 truckData: {
                   _id: 1,
                   name: 1,
-                  driver: {
+                  number: 1,
+                  drivers: {
                     _id: 1,
                     name: 1,
                   },
@@ -244,6 +241,8 @@ export async function getAllCarriers(searchParams = {}) {
                 driverName: 1,
                 details: 1,
                 notes: 1,
+                distance: 1,
+                meterReadingAtTrip: 1,
                 isActive: 1,
                 createdAt: 1,
                 updatedAt: 1,
@@ -258,6 +257,28 @@ export async function getAllCarriers(searchParams = {}) {
           ],
           // Count pipeline
           total: [{ $count: "count" }],
+          // Totals pipeline - calculate aggregations on all matching carriers
+          totals: [
+            {
+              $group: {
+                _id: null,
+                totalCars: { $sum: "$carCount" },
+                totalAmount: { $sum: "$totalAmount" },
+                totalExpenses: { $sum: { $ifNull: ["$totalExpense", 0] } },
+                totalTrips: { $sum: 1 },
+              },
+            },
+            {
+              $project: {
+                _id: 0,
+                totalCars: { $ifNull: ["$totalCars", 0] },
+                totalAmount: { $ifNull: ["$totalAmount", 0] },
+                totalExpenses: { $ifNull: ["$totalExpenses", 0] },
+                totalProfit: { $subtract: ["$totalAmount", { $ifNull: ["$totalExpenses", 0] }] },
+                totalTrips: { $ifNull: ["$totalTrips", 0] },
+              },
+            },
+          ],
         },
       },
     ]);
@@ -265,6 +286,13 @@ export async function getAllCarriers(searchParams = {}) {
     const carriers = result.results || [];
     const total = result.total[0]?.count || 0;
     const totalPages = Math.ceil(total / limit);
+    const totals = result.totals[0] || {
+      totalCars: 0,
+      totalAmount: 0,
+      totalExpenses: 0,
+      totalProfit: 0,
+      totalTrips: 0,
+    };
 
     // Convert ObjectIds to strings
     const carriersWithIds = carriers.map((carrier) => ({
@@ -288,6 +316,13 @@ export async function getAllCarriers(searchParams = {}) {
         totalPages,
         hasNextPage: page < totalPages,
         hasPrevPage: page > 1,
+      },
+      totals: {
+        totalCars: totals.totalCars || 0,
+        totalAmount: totals.totalAmount || 0,
+        totalExpenses: totals.totalExpenses || 0,
+        totalProfit: totals.totalProfit || 0,
+        totalTrips: totals.totalTrips || 0,
       },
     };
   } catch (error) {
@@ -458,6 +493,7 @@ export async function createCarrier(formData) {
     const date = formData.get("date");
     const totalExpense = parseFloat(formData.get("totalExpense") || "0");
     const truckId = formData.get("truck")?.trim() || "";
+    const tripDistance = parseFloat(formData.get("tripDistance") || "0");
     // Legacy fields for backward compatibility
     const carrierName = formData.get("carrierName")?.trim() || "";
     const driverName = formData.get("driverName")?.trim() || "";
@@ -520,12 +556,13 @@ export async function createCarrier(formData) {
 
     // Validate truck if provided
     let truckObjectId = null;
+    let truck = null;
     if (truckId) {
       if (mongoose.Types.ObjectId.isValid(truckId)) {
         truckObjectId = new mongoose.Types.ObjectId(truckId);
         // Verify truck exists
         const Truck = (await import("@/app/lib/models/Truck")).default;
-        const truck = await Truck.findById(truckObjectId);
+        truck = await Truck.findById(truckObjectId);
         if (!truck) {
           return { error: "Selected truck not found" };
         }
@@ -547,6 +584,9 @@ export async function createCarrier(formData) {
       date: date ? new Date(date) : new Date(),
       totalExpense: totalExpense || 0,
       truck: truckObjectId,
+      distance: tripDistance > 0 ? tripDistance : undefined,
+      // Capture truck's current meter reading at the time of trip creation
+      meterReadingAtTrip: truck && truck.currentMeterReading ? truck.currentMeterReading : undefined,
       // Legacy fields for backward compatibility
       carrierName: carrierName || "",
       driverName: driverName || "",
@@ -557,7 +597,51 @@ export async function createCarrier(formData) {
 
     try {
       await carrier.save();
+      
+      // Update truck meter if trip distance is provided
+      if (truck && tripDistance > 0) {
+        const Truck = (await import("@/app/lib/models/Truck")).default;
+        const updatedTruck = await Truck.findByIdAndUpdate(
+          truck._id,
+          {
+            $inc: { 
+              currentMeterReading: tripDistance
+            }
+          },
+          { new: true }
+        );
+        
+        // Check if maintenance is needed and store warning if exceeded
+        const nextMaintenanceKm = (updatedTruck.lastMaintenanceKm || 0) + (updatedTruck.maintenanceInterval || 1000);
+        const newKm = updatedTruck.currentMeterReading;
+        const kmsRemaining = nextMaintenanceKm - newKm;
+        
+        if (kmsRemaining <= 0) {
+          // Maintenance overdue - store this info
+          await Truck.findByIdAndUpdate(truck._id, {
+            $set: {
+              maintenanceWarning: `Maintenance overdue! Current: ${newKm}km, Next required: ${nextMaintenanceKm}km`
+            }
+          });
+          console.warn(`Truck ${truck.name} maintenance is overdue! Current: ${newKm}km, Last maintenance: ${updatedTruck.lastMaintenanceKm}km`);
+        } else if (kmsRemaining <= 500) {
+          // Maintenance due soon
+          await Truck.findByIdAndUpdate(truck._id, {
+            $set: {
+              maintenanceWarning: `Maintenance due soon! ${kmsRemaining}km remaining until ${nextMaintenanceKm}km`
+            }
+          });
+          console.warn(`Truck ${truck.name} maintenance due soon! ${kmsRemaining}km remaining`);
+        } else {
+          // Clear warning if all good
+          await Truck.findByIdAndUpdate(truck._id, {
+            $unset: { maintenanceWarning: "" }
+          });
+        }
+      }
+      
       revalidatePath("/carrier-trips");
+      revalidatePath("/carriers");
 
       return {
         success: true,
@@ -612,6 +696,7 @@ export async function updateCarrierExpense(carrierId, formData) {
     }
 
     const truckId = formData.get("truck")?.trim() || "";
+    const tripDistance = parseFloat(formData.get("tripDistance") || "0");
     // Legacy fields for backward compatibility
     const carrierName = formData.get("carrierName")?.trim() || "";
     const driverName = formData.get("driverName")?.trim() || "";
@@ -636,12 +721,15 @@ export async function updateCarrierExpense(carrierId, formData) {
 
     // Validate truck if provided
     let truckObjectId = null;
+    let truck = null;
+    const oldTruckId = carrier.truck?.toString() || carrier.truck || null;
+    
     if (truckId) {
       if (mongoose.Types.ObjectId.isValid(truckId)) {
         truckObjectId = new mongoose.Types.ObjectId(truckId);
         // Verify truck exists
         const Truck = (await import("@/app/lib/models/Truck")).default;
-        const truck = await Truck.findById(truckObjectId);
+        truck = await Truck.findById(truckObjectId);
         if (!truck) {
           return { error: "Selected truck not found" };
         }
@@ -657,6 +745,7 @@ export async function updateCarrierExpense(carrierId, formData) {
     const updateData = {
       totalExpense,
       truck: truckObjectId,
+      distance: tripDistance > 0 ? tripDistance : undefined,
       // Legacy fields for backward compatibility
       carrierName,
       driverName,
@@ -688,6 +777,12 @@ export async function updateCarrierExpense(carrierId, formData) {
       }
     }
     
+    // If meterReadingAtTrip is not set and truck is assigned, set it to truck's current meter reading
+    // This handles cases where old trips didn't have this field
+    if (!carrier.meterReadingAtTrip && truck && truck.currentMeterReading) {
+      updateData.meterReadingAtTrip = truck.currentMeterReading;
+    }
+
     const updatedCarrier = await Carrier.findByIdAndUpdate(
       carrierId,
       { $set: updateData },
@@ -698,7 +793,50 @@ export async function updateCarrierExpense(carrierId, formData) {
       return { error: "Carrier not found" };
     }
 
+    // Update truck meter if trip distance is provided and truck is assigned
+    if (truck && tripDistance > 0) {
+      const Truck = (await import("@/app/lib/models/Truck")).default;
+      const updatedTruck = await Truck.findByIdAndUpdate(
+        truck._id,
+        {
+          $inc: { 
+            currentMeterReading: tripDistance
+          }
+        },
+        { new: true }
+      );
+      
+      // Check if maintenance is needed and store warning if exceeded
+      const nextMaintenanceKm = (updatedTruck.lastMaintenanceKm || 0) + (updatedTruck.maintenanceInterval || 1000);
+      const newKm = updatedTruck.currentMeterReading;
+      const kmsRemaining = nextMaintenanceKm - newKm;
+      
+      if (kmsRemaining <= 0) {
+        // Maintenance overdue - store this info
+        await Truck.findByIdAndUpdate(truck._id, {
+          $set: {
+            maintenanceWarning: `Maintenance overdue! Current: ${newKm}km, Next required: ${nextMaintenanceKm}km`
+          }
+        });
+        console.warn(`Truck ${truck.name} maintenance is overdue! Current: ${newKm}km, Last maintenance: ${updatedTruck.lastMaintenanceKm}km`);
+      } else if (kmsRemaining <= 500) {
+        // Maintenance due soon
+        await Truck.findByIdAndUpdate(truck._id, {
+          $set: {
+            maintenanceWarning: `Maintenance due soon! ${kmsRemaining}km remaining until ${nextMaintenanceKm}km`
+          }
+        });
+        console.warn(`Truck ${truck.name} maintenance due soon! ${kmsRemaining}km remaining`);
+      } else {
+        // Clear warning if all good
+        await Truck.findByIdAndUpdate(truck._id, {
+          $unset: { maintenanceWarning: "" }
+        });
+      }
+    }
+
     revalidatePath("/carriers");
+    revalidatePath("/carrier-trips");
     revalidatePath("/carrier-trips");
     return {
       success: true,

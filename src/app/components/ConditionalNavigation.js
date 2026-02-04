@@ -6,8 +6,12 @@ import TabNavigation from "./TabNavigation";
 export default function ConditionalNavigation() {
   const pathname = usePathname();
   
-  // Don't show navigation on login page or trip detail pages
-  if (pathname === "/login" || (pathname?.startsWith("/carrier-trips/") && pathname !== "/carrier-trips")) {
+  // Don't show navigation on login page, trip detail pages, or truck detail pages
+  const isTripDetailPage = pathname?.startsWith("/carrier-trips/") && pathname !== "/carrier-trips";
+  // Truck detail page is /carriers/[truckId] - exclude /carriers listing page
+  const isTruckDetailPage = pathname?.startsWith("/carriers/") && pathname !== "/carriers";
+  
+  if (pathname === "/login" || isTripDetailPage || isTruckDetailPage) {
     return null;
   }
 

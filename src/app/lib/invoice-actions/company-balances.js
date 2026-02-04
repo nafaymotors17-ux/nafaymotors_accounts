@@ -33,6 +33,8 @@ export async function getCompanyBalances() {
         companyName: companyName || "UNKNOWN",
         creditBalance: company.creditBalance || 0,
         totalDue: company.dueBalance || 0,
+        bankDetails: company.bankDetails || "",
+        _id: company._id?.toString() || company._id,
       };
     });
 

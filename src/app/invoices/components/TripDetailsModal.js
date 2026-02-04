@@ -12,6 +12,15 @@ export default function TripDetailsModal({ trips, onClose }) {
     setTimeout(() => onClose(), 200);
   };
 
+  const handleTripClick = (tripNumber, tripId, e) => {
+    e.preventDefault();
+    if (tripId) {
+      window.open(`/carrier-trips/${tripId}`, '_blank');
+    } else {
+      window.open(`/carrier-trips?tripNumber=${encodeURIComponent(tripNumber)}`, '_blank');
+    }
+  };
+
   if (!isOpen || !trips || trips.length === 0) return null;
 
   return (
@@ -37,10 +46,23 @@ export default function TripDetailsModal({ trips, onClose }) {
                 className="text-sm text-gray-700 py-2 border-b border-gray-100 last:border-b-0"
               >
                 <span className="font-medium">{index + 1}.</span>{" "}
-                <span className="font-semibold text-blue-600">{trip.tripNumber}</span>
+                <a
+                  href={trip.tripId ? `/carrier-trips/${trip.tripId}` : `/carrier-trips?tripNumber=${encodeURIComponent(trip.tripNumber)}`}
+                  onClick={(e) => handleTripClick(trip.tripNumber, trip.tripId, e)}
+                  className="font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {trip.tripNumber}
+                </a>
                 {trip.date && (
                   <>
                     {" "}- <span className="text-gray-600">{formatDate(trip.date)}</span>
+                  </>
+                )}
+                {trip.truckNumber && (
+                  <>
+                    {" "}- <span className="text-gray-500">Truck: #{trip.truckNumber}</span>
                   </>
                 )}
               </div>

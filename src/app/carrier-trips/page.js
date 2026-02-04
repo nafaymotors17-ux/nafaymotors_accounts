@@ -94,30 +94,23 @@ export default function CarriersPage() {
     [user?.role]
   );
 
-  const totalCars = useMemo(
-    () => carriers.reduce((sum, c) => sum + (c.carCount || 0), 0),
-    [carriers]
+  // Get totals from API (calculated at database level with filters applied)
+  const totals = useMemo(
+    () => carriersData?.totals || {
+      totalCars: 0,
+      totalAmount: 0,
+      totalExpenses: 0,
+      totalProfit: 0,
+      totalTrips: 0,
+    },
+    [carriersData?.totals]
   );
 
-  const totalAmount = useMemo(
-    () => carriers.reduce((sum, c) => sum + (c.totalAmount || 0), 0),
-    [carriers]
-  );
-
-  const totalExpenses = useMemo(
-    () => carriers.reduce((sum, c) => sum + (c.totalExpense || 0), 0),
-    [carriers]
-  );
-
-  const totalProfit = useMemo(
-    () => totalAmount - totalExpenses,
-    [totalAmount, totalExpenses]
-  );
-
-  const totalTrips = useMemo(
-    () => pagination?.total || carriers.length,
-    [pagination?.total, carriers.length]
-  );
+  const totalCars = totals.totalCars;
+  const totalAmount = totals.totalAmount;
+  const totalExpenses = totals.totalExpenses;
+  const totalProfit = totals.totalProfit;
+  const totalTrips = totals.totalTrips;
 
   // Check if company filter is selected
   const hasCompanyFilter = useMemo(

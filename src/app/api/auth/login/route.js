@@ -1,6 +1,4 @@
-"use server";
-
-import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 import connectDB from "@/app/lib/dbConnect";
 import User from "@/app/lib/models/User";
 
@@ -9,7 +7,7 @@ export async function POST(request) {
     const { username, password } = await request.json();
 
     if (!username || !password) {
-      return Response.json(
+      return NextResponse.json(
         { success: false, error: "Username and password are required" },
         { status: 400 }
       );
@@ -20,7 +18,7 @@ export async function POST(request) {
     const user = await User.findOne({ username: username.toLowerCase() });
 
     if (!user) {
-      return Response.json(
+      return NextResponse.json(
         { success: false, error: "Invalid credentials" },
         { status: 401 }
       );
@@ -28,7 +26,7 @@ export async function POST(request) {
 
     // Simple password check - no hashing
     if (user.password !== password) {
-      return Response.json(
+      return NextResponse.json(
         { success: false, error: "Invalid credentials" },
         { status: 401 }
       );
@@ -41,14 +39,14 @@ export async function POST(request) {
       role: user.role,
     };
 
-    return Response.json({
+    return NextResponse.json({
       success: true,
       user: sessionData,
       session: sessionData, // Include full session data for client
     });
   } catch (error) {
     console.error("Login error:", error);
-    return Response.json(
+    return NextResponse.json(
       { success: false, error: "Internal server error" },
       { status: 500 }
     );

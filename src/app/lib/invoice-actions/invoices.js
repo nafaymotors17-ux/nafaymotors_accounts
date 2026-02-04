@@ -270,16 +270,19 @@ export async function getInvoices(searchParams = {}) {
       query.$or = searchConditions;
     }
 
-    // Get invoices with pagination and calculate totals using aggregation
-    const [invoices, total, totalsResult] = await Promise.all([
-      Invoice.find(query)
-        .sort({ invoiceDate: -1, createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      Invoice.countDocuments(query),
-      // Calculate totals at database level using aggregation
-      Invoice.aggregate([
+    // Get invoices with pagination
+    const invoices = await Invoice.find(query)
+      .sort({ invoiceDate: -1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+    
+    const total = await Invoice.countDocuments(query);
+
+    // Calculate totals using aggregation (with error handling)
+    let totals = { totalAmount: 0, totalPaid: 0, totalBalance: 0 };
+    try {
+      const totalsResult = await Invoice.aggregate([
         { $match: query },
         {
           $project: {
@@ -316,15 +319,17 @@ export async function getInvoices(searchParams = {}) {
             }
           }
         }
-      ])
-    ]);
+      ]);
+      
+      if (totalsResult.length > 0) {
+        totals = totalsResult[0];
+      }
+    } catch (aggError) {
+      console.error("Error calculating totals (aggregation failed):", aggError);
+      // Continue without totals - invoices will still be returned
+    }
 
     const totalPages = Math.ceil(total / limit);
-
-    // Extract totals from aggregation result
-    const totals = totalsResult.length > 0 
-      ? totalsResult[0] 
-      : { totalAmount: 0, totalPaid: 0, totalBalance: 0 };
 
     return {
       invoices: JSON.parse(JSON.stringify(invoices)),
@@ -339,9 +344,11 @@ export async function getInvoices(searchParams = {}) {
       totals: totals,
     };
   } catch (error) {
+    console.error("Error fetching invoices:", error);
     return {
       invoices: [],
       pagination: { page: 1, limit: 10, total: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false },
+      error: error.message || "Failed to fetch invoices",
     };
   }
 }

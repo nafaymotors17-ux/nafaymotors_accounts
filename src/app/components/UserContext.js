@@ -4,11 +4,13 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { getSessionFromStorage, clearSessionFromStorage } from "@/app/lib/auth/sessionClient";
 import { syncSessionToCookie, clearSessionCookie } from "@/app/lib/auth/syncSession";
+import { getCurrentUser } from "@/app/lib/users-actions/users";
 
 const UserContext = createContext(null);
 
 export function UserProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [fullUserData, setFullUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
@@ -22,9 +24,24 @@ export function UserProvider({ children }) {
       // Sync to cookie for server components - do this on every route change
       // to ensure server components can access the session
       syncSessionToCookie();
-      setLoading(false);
+      
+      // Fetch full user data including bankDetails
+      const fetchFullUserData = async () => {
+        try {
+          const userResult = await getCurrentUser();
+          if (userResult.success && userResult.user) {
+            setFullUserData(userResult.user);
+          }
+        } catch (err) {
+          console.error("Error fetching full user data:", err);
+        } finally {
+          setLoading(false);
+        }
+      };
+      fetchFullUserData();
     } else {
       setUser(null);
+      setFullUserData(null);
       clearSessionCookie();
       setLoading(false);
       // Redirect to login if not on login page
@@ -68,7 +85,7 @@ export function UserProvider({ children }) {
   };
 
   return (
-    <UserContext.Provider value={{ user, loading, logout, setUser }}>
+    <UserContext.Provider value={{ user, fullUserData, loading, logout, setUser }}>
       {children}
     </UserContext.Provider>
   );

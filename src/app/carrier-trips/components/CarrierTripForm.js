@@ -22,10 +22,12 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
   // Fetch trucks for selection
   const { data: trucksData } = useQuery({
     queryKey: ["trucks"],
-    queryFn: () => getAllTrucks({ isActive: "true" }),
+    queryFn: () => getAllTrucks({}),
   });
 
   const trucks = trucksData?.trucks || [];
+  const [selectedTruck, setSelectedTruck] = useState(null);
+  const [tripDistance, setTripDistance] = useState("");
 
   // Auto-resize textareas
   const adjustTextareaHeight = (textarea) => {
@@ -34,6 +36,25 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
       textarea.style.height = `${textarea.scrollHeight}px`;
     }
   };
+
+  // Set selected truck when component mounts or carrier changes
+  useEffect(() => {
+    if (carrier?.truck) {
+      const truckId = carrier.truck._id || carrier.truck;
+      const truck = trucks.find(t => t._id === truckId || t._id.toString() === truckId?.toString());
+      if (truck) {
+        setSelectedTruck(truck);
+      }
+    } else {
+      setSelectedTruck(null);
+    }
+    // Initialize distance when editing
+    if (carrier?.distance) {
+      setTripDistance(carrier.distance.toString());
+    } else {
+      setTripDistance("");
+    }
+  }, [carrier, trucks]);
 
   // Auto-generate trip number on mount if creating new trip
   useEffect(() => {
@@ -65,6 +86,7 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
       adjustTextareaHeight(notesRef.current);
     }
   }, [carrier]);
+
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -206,15 +228,34 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
                 </label>
                 <select
                   name="truck"
+                  id="truck-select"
                   className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                   disabled={isSubmitting}
+                  onChange={(e) => {
+                    const truck = trucks.find(t => t._id === e.target.value);
+                    setSelectedTruck(truck || null);
+                    const distanceField = document.getElementById('truck-distance-field');
+                    if (truck && distanceField) {
+                      distanceField.style.display = 'block';
+                    } else if (distanceField) {
+                      distanceField.style.display = 'none';
+                    }
+                  }}
                 >
                   <option value="">No truck assigned</option>
-                  {trucks.map((truck) => (
-                    <option key={truck._id} value={truck._id}>
-                      {truck.name} {truck.driver?.name ? `- ${truck.driver.name}` : ""} {truck.number ? `(${truck.number})` : ""}
-                    </option>
-                  ))}
+                  {trucks.map((truck) => {
+                    const driversText = truck.drivers && truck.drivers.length > 0
+                      ? `- ${truck.drivers.map(d => d.name).join(", ")}`
+                      : "";
+                    const nextMaintenanceKm = (truck.lastMaintenanceKm || 0) + (truck.maintenanceInterval || 1000);
+                    const kmsRemaining = nextMaintenanceKm - (truck.currentMeterReading || 0);
+                    const maintenanceWarning = kmsRemaining <= 500 && kmsRemaining > 0 ? " ⚠️" : "";
+                    return (
+                      <option key={truck._id} value={truck._id}>
+                        {truck.name} {driversText} {truck.number ? `(${truck.number})` : ""} {maintenanceWarning}
+                      </option>
+                    );
+                  })}
                 </select>
                 {trucks.length === 0 && (
                   <p className="text-[10px] text-amber-600 mt-0.5">
@@ -226,6 +267,97 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
                     Select the truck that will carry vehicles for this trip
                   </p>
                 )}
+              </div>
+
+              {/* Truck Maintenance Info */}
+              {selectedTruck && (
+                <div className="bg-blue-50 border border-blue-200 rounded p-2 space-y-1">
+                  <p className="text-xs font-semibold text-blue-800">Truck Maintenance Info</p>
+                  <div className="grid grid-cols-2 gap-1 text-[10px]">
+                    <div>
+                      <span className="text-gray-600">Current KM:</span>
+                      <span className="font-medium ml-1">{selectedTruck.currentMeterReading?.toLocaleString("en-US") || "0"}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Last Maint. KM:</span>
+                      <span className="font-medium ml-1">{selectedTruck.lastMaintenanceKm?.toLocaleString("en-US") || "0"}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Maint. Interval:</span>
+                      <span className="font-medium ml-1">{selectedTruck.maintenanceInterval?.toLocaleString("en-US") || "1000"} km</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Next Maint. At:</span>
+                      <span className="font-medium ml-1">
+                        {((selectedTruck.lastMaintenanceKm || 0) + (selectedTruck.maintenanceInterval || 1000)).toLocaleString("en-US")} km
+                      </span>
+                    </div>
+                  </div>
+                  {selectedTruck.lastMaintenanceDate && (
+                    <div className="text-[10px] text-gray-600">
+                      Last Maintenance: {formatDate(selectedTruck.lastMaintenanceDate)}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div id="truck-distance-field" style={{ display: selectedTruck ? 'block' : 'none' }}>
+                <label className="block text-xs font-medium text-gray-700 mb-0.5">
+                  Trip Distance (KMs) <span className="text-gray-500 font-normal">(Optional)</span>
+                </label>
+                <input
+                  type="number"
+                  name="tripDistance"
+                  step="0.01"
+                  min="0"
+                  value={tripDistance}
+                  onChange={(e) => {
+                    setTripDistance(e.target.value);
+                  }}
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
+                  placeholder="Enter distance in kilometers"
+                  disabled={isSubmitting}
+                />
+                <p className="text-[10px] text-gray-500 mt-0.5">
+                  Distance this truck will travel for this trip (will be added to truck meter)
+                </p>
+                {selectedTruck && selectedTruck.currentMeterReading && (
+                  <p className="text-[10px] text-blue-600 mt-1 font-medium">
+                    ℹ️ Current truck meter reading ({selectedTruck.currentMeterReading.toLocaleString("en-US")} km) will be recorded as meter reading at trip creation
+                  </p>
+                )}
+                
+                {/* Maintenance Warning */}
+                {selectedTruck && tripDistance && parseFloat(tripDistance) > 0 && (() => {
+                  const distance = parseFloat(tripDistance);
+                  const currentKm = selectedTruck.currentMeterReading || 0;
+                  const nextMaintenanceKm = (selectedTruck.lastMaintenanceKm || 0) + (selectedTruck.maintenanceInterval || 1000);
+                  const newKm = currentKm + distance;
+                  const kmsRemaining = nextMaintenanceKm - currentKm;
+                  const willExceed = newKm >= nextMaintenanceKm;
+                  
+                  if (willExceed) {
+                    return (
+                      <div className="mt-1.5 p-1.5 bg-red-50 border border-red-300 rounded text-[10px]">
+                        <p className="font-semibold text-red-800">⚠️ Maintenance Warning</p>
+                        <p className="text-red-700">
+                          This trip will exceed maintenance limit! After trip: {newKm.toLocaleString("en-US")} km (Next maintenance: {nextMaintenanceKm.toLocaleString("en-US")} km)
+                        </p>
+                      </div>
+                    );
+                  } else if (kmsRemaining > 0) {
+                    const remainingAfterTrip = nextMaintenanceKm - newKm;
+                    return (
+                      <div className="mt-1.5 p-1.5 bg-green-50 border border-green-300 rounded text-[10px]">
+                        <p className="font-semibold text-green-800">✓ Maintenance Status</p>
+                        <p className="text-green-700">
+                          After this trip: {newKm.toLocaleString("en-US")} km. Next maintenance required at: {nextMaintenanceKm.toLocaleString("en-US")} km ({remainingAfterTrip.toLocaleString("en-US")} km remaining)
+                        </p>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             </>
           )}
@@ -268,16 +400,35 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
                 </label>
                 <select
                   name="truck"
+                  id="truck-select-edit"
                   className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                   defaultValue={carrier?.truck?._id || carrier?.truck || ""}
                   disabled={isSubmitting}
+                  onChange={(e) => {
+                    const truck = trucks.find(t => t._id === e.target.value);
+                    setSelectedTruck(truck || null);
+                    const distanceField = document.getElementById('truck-distance-field-edit');
+                    if (truck && distanceField) {
+                      distanceField.style.display = 'block';
+                    } else if (distanceField) {
+                      distanceField.style.display = 'none';
+                    }
+                  }}
                 >
                   <option value="">No truck assigned</option>
-                  {trucks.map((truck) => (
-                    <option key={truck._id} value={truck._id}>
-                      {truck.name} {truck.driver?.name ? `- ${truck.driver.name}` : ""} {truck.number ? `(${truck.number})` : ""}
-                    </option>
-                  ))}
+                  {trucks.map((truck) => {
+                    const driversText = truck.drivers && truck.drivers.length > 0
+                      ? `- ${truck.drivers.map(d => d.name).join(", ")}`
+                      : "";
+                    const nextMaintenanceKm = (truck.lastMaintenanceKm || 0) + (truck.maintenanceInterval || 1000);
+                    const kmsRemaining = nextMaintenanceKm - (truck.currentMeterReading || 0);
+                    const maintenanceWarning = kmsRemaining <= 500 && kmsRemaining > 0 ? " ⚠️" : "";
+                    return (
+                      <option key={truck._id} value={truck._id}>
+                        {truck.name} {driversText} {truck.number ? `(${truck.number})` : ""} {maintenanceWarning}
+                      </option>
+                    );
+                  })}
                 </select>
                 {trucks.length === 0 && (
                   <p className="text-[10px] text-amber-600 mt-0.5">
@@ -287,6 +438,102 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
                 <p className="text-[10px] text-gray-500 mt-0.5">
                   Change the truck assigned to this trip
                 </p>
+              </div>
+
+              {/* Truck Maintenance Info for Edit Mode */}
+              {selectedTruck && (
+                <div className="bg-blue-50 border border-blue-200 rounded p-2 space-y-1">
+                  <p className="text-xs font-semibold text-blue-800">Truck Maintenance Info</p>
+                  <div className="grid grid-cols-2 gap-1 text-[10px]">
+                    <div>
+                      <span className="text-gray-600">Current KM:</span>
+                      <span className="font-medium ml-1">{selectedTruck.currentMeterReading?.toLocaleString("en-US") || "0"}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Last Maint. KM:</span>
+                      <span className="font-medium ml-1">{selectedTruck.lastMaintenanceKm?.toLocaleString("en-US") || "0"}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Maint. Interval:</span>
+                      <span className="font-medium ml-1">{selectedTruck.maintenanceInterval?.toLocaleString("en-US") || "1000"} km</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Next Maint. At:</span>
+                      <span className="font-medium ml-1">
+                        {((selectedTruck.lastMaintenanceKm || 0) + (selectedTruck.maintenanceInterval || 1000)).toLocaleString("en-US")} km
+                      </span>
+                    </div>
+                  </div>
+                  {selectedTruck.lastMaintenanceDate && (
+                    <div className="text-[10px] text-gray-600">
+                      Last Maintenance: {formatDate(selectedTruck.lastMaintenanceDate)}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div id="truck-distance-field-edit" style={{ display: selectedTruck ? 'block' : 'none' }}>
+                <label className="block text-xs font-medium text-gray-700 mb-0.5">
+                  Trip Distance (KMs) <span className="text-gray-500 font-normal">(Optional)</span>
+                </label>
+                <input
+                  type="number"
+                  name="tripDistance"
+                  step="0.01"
+                  min="0"
+                  value={tripDistance}
+                  onChange={(e) => {
+                    setTripDistance(e.target.value);
+                  }}
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md"
+                  placeholder="Enter distance in kilometers"
+                  disabled={isSubmitting}
+                />
+                <p className="text-[10px] text-gray-500 mt-0.5">
+                  Distance this truck will travel for this trip (will be added to truck meter)
+                </p>
+                {carrier?.meterReadingAtTrip && (
+                  <p className="text-[10px] text-blue-600 mt-1">
+                    Meter reading at trip creation: {carrier.meterReadingAtTrip.toLocaleString("en-US")} km
+                  </p>
+                )}
+                {selectedTruck && selectedTruck.currentMeterReading && !carrier?.meterReadingAtTrip && (
+                  <p className="text-[10px] text-blue-600 mt-1 font-medium">
+                    ℹ️ Current truck meter reading ({selectedTruck.currentMeterReading.toLocaleString("en-US")} km) will be recorded as meter reading at trip creation
+                  </p>
+                )}
+                
+                {/* Maintenance Warning for Edit Mode */}
+                {selectedTruck && tripDistance && parseFloat(tripDistance) > 0 && (() => {
+                  const distance = parseFloat(tripDistance);
+                  const currentKm = selectedTruck.currentMeterReading || 0;
+                  const nextMaintenanceKm = (selectedTruck.lastMaintenanceKm || 0) + (selectedTruck.maintenanceInterval || 1000);
+                  const newKm = currentKm + distance;
+                  const kmsRemaining = nextMaintenanceKm - currentKm;
+                  const willExceed = newKm >= nextMaintenanceKm;
+                  
+                  if (willExceed) {
+                    return (
+                      <div className="mt-1.5 p-1.5 bg-red-50 border border-red-300 rounded text-[10px]">
+                        <p className="font-semibold text-red-800">⚠️ Maintenance Warning</p>
+                        <p className="text-red-700">
+                          This trip will exceed maintenance limit! After trip: {newKm.toLocaleString("en-US")} km (Next maintenance: {nextMaintenanceKm.toLocaleString("en-US")} km)
+                        </p>
+                      </div>
+                    );
+                  } else if (kmsRemaining > 0) {
+                    const remainingAfterTrip = nextMaintenanceKm - newKm;
+                    return (
+                      <div className="mt-1.5 p-1.5 bg-green-50 border border-green-300 rounded text-[10px]">
+                        <p className="font-semibold text-green-800">✓ Maintenance Status</p>
+                        <p className="text-green-700">
+                          After this trip: {newKm.toLocaleString("en-US")} km. Next maintenance required at: {nextMaintenanceKm.toLocaleString("en-US")} km ({remainingAfterTrip.toLocaleString("en-US")} km remaining)
+                        </p>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             </>
           )}

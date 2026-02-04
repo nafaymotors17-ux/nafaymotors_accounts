@@ -91,6 +91,20 @@ export default function InvoicesPage() {
           <span>Refresh</span>
         </button>
       </div>
+      {invoicesError && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+          <p className="text-red-800 text-sm">
+            Error loading invoices: {invoicesError.message || invoicesData?.error || "Unknown error"}
+          </p>
+        </div>
+      )}
+      {invoicesData?.error && !invoicesError && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+          <p className="text-red-800 text-sm">
+            Error: {invoicesData.error}
+          </p>
+        </div>
+      )}
       <InvoicesTable
         invoices={invoicesData?.invoices || []}
         pagination={invoicesData?.pagination}
