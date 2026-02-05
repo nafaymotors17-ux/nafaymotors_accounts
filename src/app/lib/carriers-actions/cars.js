@@ -159,6 +159,10 @@ export async function createCar(formData) {
       return { error: "Invalid trip/carrier ID" };
     }
 
+    // Get trip date from carrier
+    const carrier = await Carrier.findById(carrierId).select("date").lean();
+    const tripDate = carrier?.date ? new Date(carrier.date) : new Date();
+
     const car = await new Car({
       stockNo,
       name,
@@ -167,7 +171,7 @@ export async function createCar(formData) {
       companyName:  companyName.trim().toUpperCase(),
       userId: targetUserId,
       carrier: carrierId, // This is the trip carrier (must be type='trip')
-      date: date ? new Date(date) : new Date(),
+      date: tripDate, // Always use trip date
     });
 
     await car.save();
@@ -196,6 +200,10 @@ export async function createMultipleCars(carsData, carrierId, selectedUserId = n
       ? selectedUserId 
       : session.userId;
 
+    // Get trip date from carrier
+    const carrier = await Carrier.findById(carrierId).select("date").lean();
+    const tripDate = carrier?.date ? new Date(carrier.date) : new Date();
+
     const results = [];
     
     for (const carData of carsData) {
@@ -205,8 +213,7 @@ export async function createMultipleCars(carsData, carrierId, selectedUserId = n
         continue;
       }
 
-
-
+      // Use trip date for all cars (cars should have same date as trip)
       const car = new Car({
         stockNo: stockNo.trim(),
         name: name.trim(),
@@ -215,7 +222,7 @@ export async function createMultipleCars(carsData, carrierId, selectedUserId = n
         companyName: companyName,
         userId: targetUserId,
         carrier: carrierId, 
-        date: date ? new Date(date) : new Date(),
+        date: tripDate, // Always use trip date
       });
 
       await car.save();

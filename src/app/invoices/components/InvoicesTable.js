@@ -651,10 +651,16 @@ export default function InvoicesTable({
                               <div className="flex items-center gap-1">
                                 {invoice.tripNumbers[0] && (
                                   <a
-                                    href={`/carrier-trips?tripNumber=${encodeURIComponent(invoice.tripNumbers[0])}`}
+                                    href={invoice.tripIds && invoice.tripIds.length > 0 && invoice.tripIds[0] 
+                                      ? `/carrier-trips/${invoice.tripIds[0]}`
+                                      : `/carrier-trips?tripNumber=${encodeURIComponent(invoice.tripNumbers[0])}`}
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      window.open(`/carrier-trips?tripNumber=${encodeURIComponent(invoice.tripNumbers[0])}`, '_blank');
+                                      if (invoice.tripIds && invoice.tripIds.length > 0 && invoice.tripIds[0]) {
+                                        window.open(`/carrier-trips/${invoice.tripIds[0]}`, '_blank');
+                                      } else {
+                                        window.open(`/carrier-trips?tripNumber=${encodeURIComponent(invoice.tripNumbers[0])}`, '_blank');
+                                      }
                                     }}
                                     className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
                                     target="_blank"
@@ -670,11 +676,6 @@ export default function InvoicesTable({
                                   <span className="ml-1 text-gray-500">...</span>
                                 )}
                               </div>
-                              {invoice.truckNumbers && invoice.truckNumbers[0] && (
-                                <div className="text-[10px] text-gray-500 mt-0.5">
-                                  Truck: #{invoice.truckNumbers[0]}
-                                </div>
-                              )}
                             </button>
                           </div>
                         ) : (

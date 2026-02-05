@@ -435,6 +435,7 @@ export async function updateTruck(truckId, formData) {
     const currentMeterReading = parseFloat(formData.get("currentMeterReading") || "0") || 0;
     const maintenanceInterval = parseFloat(formData.get("maintenanceInterval") || "1000") || 1000;
     const lastMaintenanceKm = parseFloat(formData.get("lastMaintenanceKm") || "0") || 0;
+    const lastMaintenanceDate = formData.get("lastMaintenanceDate") ? new Date(formData.get("lastMaintenanceDate")) : undefined;
 
     if (!name) {
       return { error: "Truck name is required" };
@@ -506,6 +507,10 @@ export async function updateTruck(truckId, formData) {
     truck.currentMeterReading = currentMeterReading;
     truck.maintenanceInterval = maintenanceInterval;
     truck.lastMaintenanceKm = lastMaintenanceKm;
+    // Update lastMaintenanceDate if provided
+    if (lastMaintenanceDate) {
+      truck.lastMaintenanceDate = lastMaintenanceDate;
+    }
 
     await truck.save();
     revalidatePath("/carriers");

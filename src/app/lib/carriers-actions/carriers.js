@@ -723,8 +723,10 @@ export async function updateCarrierExpense(carrierId, formData) {
     let truckObjectId = null;
     let truck = null;
     const oldTruckId = carrier.truck?.toString() || carrier.truck || null;
+    const oldDistance = carrier.distance || 0;
     
-    if (truckId) {
+    // Only update truck if a new truck ID is provided (not empty string)
+    if (truckId && truckId.trim() !== "") {
       if (mongoose.Types.ObjectId.isValid(truckId)) {
         truckObjectId = new mongoose.Types.ObjectId(truckId);
         // Verify truck exists
@@ -740,12 +742,21 @@ export async function updateCarrierExpense(carrierId, formData) {
       } else {
         return { error: "Invalid truck ID" };
       }
+    } else {
+      // If no truck ID provided, keep the existing truck
+      if (oldTruckId) {
+        truckObjectId = new mongoose.Types.ObjectId(oldTruckId);
+        const Truck = (await import("@/app/lib/models/Truck")).default;
+        truck = await Truck.findById(truckObjectId);
+      }
     }
 
     const updateData = {
       totalExpense,
-      truck: truckObjectId,
-      distance: tripDistance > 0 ? tripDistance : undefined,
+      // Only update truck if a new one was provided
+      ...(truckObjectId ? { truck: truckObjectId } : {}),
+      // Always update distance if provided (even if 0, to allow clearing it)
+      ...(tripDistance !== undefined && tripDistance !== null ? { distance: tripDistance } : {}),
       // Legacy fields for backward compatibility
       carrierName,
       driverName,
@@ -777,10 +788,14 @@ export async function updateCarrierExpense(carrierId, formData) {
       }
     }
     
-    // If meterReadingAtTrip is not set and truck is assigned, set it to truck's current meter reading
-    // This handles cases where old trips didn't have this field
-    if (!carrier.meterReadingAtTrip && truck && truck.currentMeterReading) {
-      updateData.meterReadingAtTrip = truck.currentMeterReading;
+    // Update meterReadingAtTrip if:
+    // 1. It's not set and truck is assigned, OR
+    // 2. Truck has changed (new truck assigned)
+    const truckChanged = oldTruckId && truckObjectId && oldTruckId.toString() !== truckObjectId.toString();
+    if (truck && truck.currentMeterReading) {
+      if (!carrier.meterReadingAtTrip || truckChanged) {
+        updateData.meterReadingAtTrip = truck.currentMeterReading;
+      }
     }
 
     const updatedCarrier = await Carrier.findByIdAndUpdate(
@@ -794,44 +809,52 @@ export async function updateCarrierExpense(carrierId, formData) {
     }
 
     // Update truck meter if trip distance is provided and truck is assigned
-    if (truck && tripDistance > 0) {
+    // Need to handle the difference between old and new distance
+    if (truck && tripDistance !== undefined && tripDistance !== null) {
       const Truck = (await import("@/app/lib/models/Truck")).default;
-      const updatedTruck = await Truck.findByIdAndUpdate(
-        truck._id,
-        {
-          $inc: { 
-            currentMeterReading: tripDistance
-          }
-        },
-        { new: true }
-      );
       
-      // Check if maintenance is needed and store warning if exceeded
-      const nextMaintenanceKm = (updatedTruck.lastMaintenanceKm || 0) + (updatedTruck.maintenanceInterval || 1000);
-      const newKm = updatedTruck.currentMeterReading;
-      const kmsRemaining = nextMaintenanceKm - newKm;
+      // Calculate the difference: new distance - old distance
+      const distanceDifference = tripDistance - oldDistance;
       
-      if (kmsRemaining <= 0) {
-        // Maintenance overdue - store this info
-        await Truck.findByIdAndUpdate(truck._id, {
-          $set: {
-            maintenanceWarning: `Maintenance overdue! Current: ${newKm}km, Next required: ${nextMaintenanceKm}km`
-          }
-        });
-        console.warn(`Truck ${truck.name} maintenance is overdue! Current: ${newKm}km, Last maintenance: ${updatedTruck.lastMaintenanceKm}km`);
-      } else if (kmsRemaining <= 500) {
-        // Maintenance due soon
-        await Truck.findByIdAndUpdate(truck._id, {
-          $set: {
-            maintenanceWarning: `Maintenance due soon! ${kmsRemaining}km remaining until ${nextMaintenanceKm}km`
-          }
-        });
-        console.warn(`Truck ${truck.name} maintenance due soon! ${kmsRemaining}km remaining`);
-      } else {
-        // Clear warning if all good
-        await Truck.findByIdAndUpdate(truck._id, {
-          $unset: { maintenanceWarning: "" }
-        });
+      // Only update if there's a change in distance
+      if (distanceDifference !== 0) {
+        const updatedTruck = await Truck.findByIdAndUpdate(
+          truck._id,
+          {
+            $inc: { 
+              currentMeterReading: distanceDifference
+            }
+          },
+          { new: true }
+        );
+        
+        // Check if maintenance is needed and store warning if exceeded
+        const nextMaintenanceKm = (updatedTruck.lastMaintenanceKm || 0) + (updatedTruck.maintenanceInterval || 1000);
+        const newKm = updatedTruck.currentMeterReading;
+        const kmsRemaining = nextMaintenanceKm - newKm;
+        
+        if (kmsRemaining <= 0) {
+          // Maintenance overdue - store this info
+          await Truck.findByIdAndUpdate(truck._id, {
+            $set: {
+              maintenanceWarning: `Maintenance overdue! Current: ${newKm}km, Next required: ${nextMaintenanceKm}km`
+            }
+          });
+          console.warn(`Truck ${truck.name} maintenance is overdue! Current: ${newKm}km, Last maintenance: ${updatedTruck.lastMaintenanceKm}km`);
+        } else if (kmsRemaining <= 500) {
+          // Maintenance due soon
+          await Truck.findByIdAndUpdate(truck._id, {
+            $set: {
+              maintenanceWarning: `Maintenance due soon! ${kmsRemaining}km remaining until ${nextMaintenanceKm}km`
+            }
+          });
+          console.warn(`Truck ${truck.name} maintenance due soon! ${kmsRemaining}km remaining`);
+        } else {
+          // Clear warning if all good
+          await Truck.findByIdAndUpdate(truck._id, {
+            $unset: { maintenanceWarning: "" }
+          });
+        }
       }
     }
 

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, Plus, Trash2, DollarSign, Truck, Edit, Calendar } from "lucide-react";
+import { X, Plus, Trash2, DollarSign, Truck, Edit } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
 import ExpenseForm from "../components/ExpenseForm";
 import CarForm from "../components/CarForm";
@@ -17,8 +17,6 @@ const CATEGORY_LABELS = {
   tool_taxes: "Tool Taxes",
   on_road: "On Road",
   others: "Others",
-  maintenance: "Maintenance",
-  tyre: "Tyre",
 };
 
 export default function TripDetailPage() {
@@ -32,7 +30,7 @@ export default function TripDetailPage() {
   const [showCarForm, setShowCarForm] = useState(false);
 
   // Fetch trip data (includes expenses and cars in one call) - Priority query
-  const { data: tripData, isLoading: tripLoading } = useQuery({
+  const { data: tripData, isLoading: tripLoading, refetch } = useQuery({
     queryKey: ["trip", tripId],
     queryFn: async () => {
       const response = await fetch(`/api/carriers/${tripId}`);
@@ -42,7 +40,7 @@ export default function TripDetailPage() {
     enabled: !!tripId,
     staleTime: 0, // Always fetch fresh data
     refetchOnMount: true, // Refetch when component mounts
-    refetchOnWindowFocus: false, // Don't refetch on window focus
+    refetchOnWindowFocus: true, // Refetch when window comes into focus
   });
 
   // Fetch companies for CarForm - Non-blocking, can load in background
@@ -77,22 +75,6 @@ export default function TripDetailPage() {
     },
   });
 
-  const syncCarsDateMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(`/api/carriers/${tripId}/sync-cars-date`, {
-        method: "POST",
-      });
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to sync cars date");
-      }
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
-      queryClient.invalidateQueries({ queryKey: ["carriers"] });
-    },
-  });
 
   const handleDeleteExpense = (expenseId) => {
     if (!confirm("Are you sure you want to delete this expense?")) return;
@@ -329,7 +311,6 @@ export default function TripDetailPage() {
                       <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-600">Details</th>
                       <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-600">Liters</th>
                       <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-600">Price/L</th>
-                      <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-600">Meter (km)</th>
                       <th className="px-2 py-1.5 text-right text-[10px] font-medium text-gray-600">Amount</th>
                       <th className="px-2 py-1.5 text-center text-[10px] font-medium text-gray-600">Actions</th>
                     </tr>
@@ -357,11 +338,6 @@ export default function TripDetailPage() {
                         </td>
                         <td className="px-2 py-1.5 text-[10px]">
                           {expense.category === "fuel" && expense.pricePerLiter ? `R${expense.pricePerLiter.toFixed(2)}` : "-"}
-                        </td>
-                        <td className="px-2 py-1.5 text-[10px]">
-                          {expense.category === "maintenance" && expense.meterReading 
-                            ? expense.meterReading.toLocaleString("en-US") 
-                            : "-"}
                         </td>
                         <td className="px-2 py-1.5 text-right text-red-600 font-semibold text-[10px]">
                           R{expense.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
@@ -392,7 +368,7 @@ export default function TripDetailPage() {
                   </tbody>
                   <tfoot className="bg-gray-100 sticky bottom-0">
                     <tr>
-                      <td colSpan="7" className="px-2 py-1.5 text-right font-semibold text-[10px]">
+                      <td colSpan="6" className="px-2 py-1.5 text-right font-semibold text-[10px]">
                         Total:
                       </td>
                       <td className="px-2 py-1.5 text-right text-red-600 font-bold text-[10px]">
@@ -411,21 +387,6 @@ export default function TripDetailPage() {
             <div className="flex justify-between items-center mb-3">
               <h2 className="text-base font-semibold text-gray-800">Cars ({cars.length})</h2>
               <div className="flex gap-2">
-                {cars.length > 0 && (
-                  <button
-                    onClick={() => {
-                      if (confirm(`Copy trip date (${formatDate(trip.date)}) to all ${cars.length} cars?`)) {
-                        syncCarsDateMutation.mutate();
-                      }
-                    }}
-                    disabled={syncCarsDateMutation.isPending}
-                    className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 text-sm"
-                    title="Copy trip date to all cars"
-                  >
-                    <Calendar className="w-3.5 h-3.5" />
-                    {syncCarsDateMutation.isPending ? "Syncing..." : "Sync Date"}
-                  </button>
-                )}
                 <button
                   onClick={() => setShowCarForm(true)}
                   className="px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1.5 text-sm"

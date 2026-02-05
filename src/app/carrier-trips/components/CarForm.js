@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createMultipleCars } from "@/app/lib/carriers-actions/cars";
 import { useUser } from "@/app/components/UserContext";
@@ -15,6 +15,11 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef(null);
   
+  // Get trip date - use carrier date if available, otherwise current date
+  const tripDate = carrier?.date 
+    ? new Date(carrier.date).toISOString().split("T")[0]
+    : new Date().toISOString().split("T")[0];
+
   const [carRows, setCarRows] = useState([
     {
       stockNo: "",
@@ -22,9 +27,19 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
       chassis: "",
       amount: "",
       companyId: "",
-      date: new Date().toISOString().split("T")[0],
+      date: tripDate, // Use trip date by default
     },
   ]);
+
+  // Update all car rows to use trip date when carrier changes
+  useEffect(() => {
+    if (carrier?.date) {
+      const newTripDate = new Date(carrier.date).toISOString().split("T")[0];
+      setCarRows(prevRows => 
+        prevRows.map(row => ({ ...row, date: newTripDate }))
+      );
+    }
+  }, [carrier?.date]);
 
 
   const addCarRow = () => {
@@ -36,7 +51,7 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
         chassis: "",
         amount: "",
         companyId: "",
-        date: new Date().toISOString().split("T")[0],
+        date: tripDate, // Use trip date for new rows
       },
     ]);
   };
@@ -216,9 +231,9 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
           amountValue = parseFloat(cleanAmount) || 0;
         }
 
-        // Use today's date if no date provided
+        // Use trip date if no date provided
         if (!dateValue) {
-          dateValue = new Date().toISOString().split("T")[0];
+          dateValue = tripDate;
         }
 
         importedRows.push({
@@ -227,7 +242,7 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
           chassis,
           amount: amountValue.toString(),
           companyId: company._id,
-          date: dateValue,
+          date: tripDate, // Always use trip date, ignore Excel date
         });
       }
 
@@ -310,7 +325,7 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
           chassis: row.chassis,
           amount: row.amount,
           companyName: selectedCompany.name,
-          date: row.date,
+          date: tripDate, // Always use trip date, ignore row.date
         };
       });
       
@@ -434,8 +449,10 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
                             type="date"
                             value={row.date}
                             onChange={(e) => updateCarRow(index, "date", e.target.value)}
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-xs bg-gray-100"
+                            disabled
                             required
+                            title="Car date matches trip date and cannot be changed"
                           />
                         </td>
                         <td className="px-2 py-2">

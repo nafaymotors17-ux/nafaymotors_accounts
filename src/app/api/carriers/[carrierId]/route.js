@@ -89,13 +89,7 @@ export async function GET(request, { params }) {
           },
         },
       },
-      // Include meterReadingAtTrip and distance in the output
-      {
-        $addFields: {
-          meterReadingAtTrip: 1,
-          distance: 1,
-        },
-      },
+      // meterReadingAtTrip and distance are already included in the carrier document
     ]);
 
     if (!carriers || carriers.length === 0) {

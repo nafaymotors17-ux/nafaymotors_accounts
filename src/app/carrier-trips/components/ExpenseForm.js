@@ -11,8 +11,6 @@ const CATEGORIES = [
   { value: "taxes", label: "Taxes" },
   { value: "tool_taxes", label: "Tool Taxes" },
   { value: "on_road", label: "On Road" },
-  { value: "maintenance", label: "Maintenance" },
-  { value: "tyre", label: "Tyre" },
   { value: "others", label: "Others" },
 ];
 
@@ -28,9 +26,6 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
   const [pricePerLiter, setPricePerLiter] = useState(expense?.pricePerLiter?.toString() || "");
   const [driverId, setDriverId] = useState(
     expense?.driverRentDriver?.toString() || expense?.driverRentDriver?._id?.toString() || expense?.driver?.toString() || expense?.driver?._id?.toString() || ""
-  );
-  const [meterReading, setMeterReading] = useState(
-    expense?.meterReading?.toString() || ""
   );
   const [date, setDate] = useState(
     expense?.date ? new Date(expense.date).toISOString().split("T")[0] : new Date().toISOString().split("T")[0]
@@ -56,14 +51,7 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
       const singleDriver = truckDrivers[0];
       setDriverId(singleDriver._id?.toString() || singleDriver.toString());
     }
-    // Auto-populate meter reading for maintenance expenses from truck's current meter reading
-    if (category === "maintenance" && !expense && trip?.truckData?.currentMeterReading) {
-      const currentMeter = trip.truckData.currentMeterReading;
-      if (!meterReading || meterReading === "") {
-        setMeterReading(currentMeter.toString());
-      }
-    }
-  }, [category, liters, pricePerLiter, truckDrivers, expense, trip, meterReading]);
+  }, [category, liters, pricePerLiter, truckDrivers, expense]);
 
   const createExpenseMutation = useMutation({
     mutationFn: async (data) => {
@@ -134,10 +122,6 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
           return;
         }
         expenseData.driver = driverId;
-      }
-
-      if (category === "maintenance") {
-        if (meterReading) expenseData.meterReading = parseFloat(meterReading);
       }
 
       if (expense) {
@@ -292,27 +276,6 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
             </div>
           )}
 
-          {category === "maintenance" && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Meter Reading (km)
-              </label>
-              <input
-                type="number"
-                step="1"
-                value={meterReading}
-                onChange={(e) => setMeterReading(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Enter current odometer reading"
-                disabled={isSubmitting}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                {trip?.truckData?.currentMeterReading 
-                  ? `Current truck meter: ${trip.truckData.currentMeterReading.toLocaleString("en-US")} km (auto-filled)`
-                  : "Record the vehicle's odometer reading at the time of maintenance"}
-              </p>
-            </div>
-          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">

@@ -151,6 +151,7 @@ export async function GET(request, { params }) {
           pricePerLiter: 1,
           tyreNumber: 1,
           tyreInfo: 1,
+          meterReading: 1,
           date: 1,
           createdAt: 1,
           updatedAt: 1,
@@ -183,6 +184,7 @@ export async function GET(request, { params }) {
         pricePerLiter: expense.pricePerLiter || null,
         tyreNumber: expense.tyreNumber || null,
         tyreInfo: expense.tyreInfo || null,
+        meterReading: expense.meterReading || null,
         date: expense.date,
         createdAt: expense.createdAt,
         updatedAt: expense.updatedAt,
@@ -251,7 +253,7 @@ export async function POST(request, { params }) {
     }
 
     const body = await request.json();
-    const { category, amount, details, liters, pricePerLiter, date, tyreNumber, tyreInfo } = body;
+    const { category, amount, details, liters, pricePerLiter, date, tyreNumber, tyreInfo, meterReading } = body;
 
     // Validate required fields
     if (!category) {
@@ -333,6 +335,7 @@ export async function POST(request, { params }) {
       pricePerLiter: category === "fuel" && pricePerLiter ? parseFloat(pricePerLiter) : undefined,
       tyreNumber: category === "tyre" && tyreNumber ? tyreNumber.trim() : undefined,
       tyreInfo: category === "tyre" && tyreInfo ? tyreInfo.trim() : undefined,
+      meterReading: (category === "maintenance" || category === "tyre") && meterReading ? parseFloat(meterReading) : undefined,
       date: date ? new Date(date) : new Date(),
     });
 
@@ -347,28 +350,29 @@ export async function POST(request, { params }) {
     
     console.log("Expense saved successfully:", expense._id);
 
-    // If this is a maintenance expense, update truck's last maintenance
-    // This sets the last maintenance to the current meter reading and calculates next maintenance
+    // If this is a maintenance expense, update truck's last maintenance and current meter reading
+    // Use the meter reading from the expense if provided, otherwise use truck's current meter reading
     if (category === "maintenance") {
-      const currentKm = truck.currentMeterReading || 0;
+      const maintenanceKm = expense.meterReading || truck.currentMeterReading || 0;
       const maintenanceDate = date ? new Date(date) : new Date();
       
-      // Update truck's last maintenance info
+      // Update truck's last maintenance info and current meter reading
       // Next maintenance will be: lastMaintenanceKm + maintenanceInterval
       await Truck.findByIdAndUpdate(truckId, {
-        lastMaintenanceKm: currentKm,
+        lastMaintenanceKm: maintenanceKm,
         lastMaintenanceDate: maintenanceDate,
+        currentMeterReading: maintenanceKm, // Update current meter reading to the maintenance meter reading
         $push: {
           maintenanceHistory: {
             date: maintenanceDate,
-            kmReading: currentKm,
+            kmReading: maintenanceKm,
             details: details || "",
             cost: finalAmount,
           }
         }
       });
       
-      console.log(`Maintenance updated for truck ${truckId}: Last maintenance at ${currentKm}km, Next maintenance at ${currentKm + (truck.maintenanceInterval || 1000)}km`);
+      console.log(`Maintenance updated for truck ${truckId}: Last maintenance at ${maintenanceKm}km, Current meter reading updated to ${maintenanceKm}km, Next maintenance at ${maintenanceKm + (truck.maintenanceInterval || 1000)}km`);
     }
 
     return NextResponse.json({

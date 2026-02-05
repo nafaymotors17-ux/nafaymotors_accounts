@@ -84,8 +84,16 @@ const InvoiceSchema = new mongoose.Schema({
     type: String,
     trim: true,
   }],
+  tripIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Carrier",
+  }],
   tripDates: [{
     type: Date,
+  }],
+  truckNumbers: [{
+    type: String,
+    trim: true,
   }],
   // Payment tracking
   payments: [{

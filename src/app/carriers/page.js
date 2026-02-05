@@ -126,16 +126,31 @@ export default function CarriersPage() {
 
   const updateMutation = useMutation({
     mutationFn: ({ truckId, formData }) => updateTruck(truckId, formData),
-    onSuccess: () => {
+    onSuccess: (result, variables) => {
+      // Invalidate all truck-related queries
       queryClient.invalidateQueries({ queryKey: ["trucks"] });
+      queryClient.invalidateQueries({ queryKey: ["truck", variables.truckId] });
+      // Refetch to ensure fresh data
+      queryClient.refetchQueries({ queryKey: ["trucks"] });
+      queryClient.refetchQueries({ queryKey: ["truck", variables.truckId] });
       handleCloseForm();
     },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteTruck,
+    mutationFn: async (truckId) => {
+      const result = await deleteTruck(truckId);
+      // If result has an error, throw it so React Query treats it as an error
+      if (result?.error) {
+        throw new Error(result.error);
+      }
+      return result;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["trucks"] });
+    },
+    onError: (error) => {
+      alert(`Error deleting truck: ${error.message || "Unknown error"}`);
     },
   });
 

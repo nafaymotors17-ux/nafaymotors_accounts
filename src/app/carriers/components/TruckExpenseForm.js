@@ -38,14 +38,17 @@ export default function TruckExpenseForm({ truckId, truck, expense, onClose }) {
         setAmount(calculated.toFixed(2));
       }
     }
-    // Auto-populate meter reading for maintenance expenses from truck's current meter reading
-    if (category === "maintenance" && !expense && truck?.currentMeterReading) {
+  }, [category, liters, pricePerLiter]);
+
+  // Auto-populate meter reading for maintenance and tyre expenses from truck's current meter reading
+  useEffect(() => {
+    if ((category === "maintenance" || category === "tyre") && !expense && truck?.currentMeterReading) {
       const currentMeter = truck.currentMeterReading;
       if (!meterReading || meterReading === "") {
         setMeterReading(currentMeter.toString());
       }
     }
-  }, [category, liters, pricePerLiter, truck, expense, meterReading]);
+  }, [category, truck, expense]);
 
   const createExpenseMutation = useMutation({
     mutationFn: async (data) => {
@@ -59,6 +62,14 @@ export default function TruckExpenseForm({ truckId, truck, expense, onClose }) {
         throw new Error(errorData.error || "Failed to create expense");
       }
       return response.json();
+    },
+    onSuccess: () => {
+      // Invalidate queries to refresh truck data and expenses
+      queryClient.invalidateQueries({ queryKey: ["truck-expenses", truckId] });
+      queryClient.invalidateQueries({ queryKey: ["truck", truckId] });
+      queryClient.invalidateQueries({ queryKey: ["trucks"] });
+      // Refetch truck data immediately to show updated maintenance info
+      queryClient.refetchQueries({ queryKey: ["truck", truckId] });
     },
   });
 
@@ -74,6 +85,14 @@ export default function TruckExpenseForm({ truckId, truck, expense, onClose }) {
         throw new Error(errorData.error || "Failed to update expense");
       }
       return response.json();
+    },
+    onSuccess: () => {
+      // Invalidate queries to refresh truck data and expenses
+      queryClient.invalidateQueries({ queryKey: ["truck-expenses", truckId] });
+      queryClient.invalidateQueries({ queryKey: ["truck", truckId] });
+      queryClient.invalidateQueries({ queryKey: ["trucks"] });
+      // Refetch truck data immediately to show updated maintenance info
+      queryClient.refetchQueries({ queryKey: ["truck", truckId] });
     },
   });
 
@@ -105,6 +124,7 @@ export default function TruckExpenseForm({ truckId, truck, expense, onClose }) {
       if (category === "tyre") {
         if (tyreNumber) expenseData.tyreNumber = tyreNumber.trim();
         if (tyreInfo) expenseData.tyreInfo = tyreInfo.trim();
+        if (meterReading) expenseData.meterReading = parseFloat(meterReading);
       }
 
       if (category === "maintenance") {
@@ -239,6 +259,25 @@ export default function TruckExpenseForm({ truckId, truck, expense, onClose }) {
 
           {category === "tyre" && (
             <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Meter Reading (km)
+                </label>
+                <input
+                  type="number"
+                  step="1"
+                  value={meterReading}
+                  onChange={(e) => setMeterReading(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Enter current odometer reading"
+                  disabled={isSubmitting}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  {truck?.currentMeterReading 
+                    ? `Current truck meter: ${truck.currentMeterReading.toLocaleString("en-US")} km (auto-filled)`
+                    : "Record the vehicle's odometer reading when the tyre was changed"}
+                </p>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Tyre Number

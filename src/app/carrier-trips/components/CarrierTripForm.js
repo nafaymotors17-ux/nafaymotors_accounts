@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createCarrier, updateCarrierExpense, generateNextTripNumber } from "@/app/lib/carriers-actions/carriers";
 import { getAllTrucks } from "@/app/lib/carriers-actions/trucks";
 import { useUser } from "@/app/components/UserContext";
@@ -10,6 +10,7 @@ import { X, RefreshCw } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
 
 export default function CarrierTripForm({ carrier, users = [], onClose }) {
+  const queryClient = useQueryClient();
   const { user } = useUser();
   const [selectedUserId, setSelectedUserId] = useState("");
   const router = useRouter();
@@ -109,6 +110,15 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
         if (result.warning) {
           // Show warning but don't block - user can proceed
           alert(`Warning: ${result.warning}`);
+        }
+        // Invalidate queries to refresh data
+        if (carrier) {
+          // If updating, invalidate the specific trip query
+          queryClient.invalidateQueries({ queryKey: ["trip", carrier._id] });
+          queryClient.invalidateQueries({ queryKey: ["carriers"] });
+        } else {
+          // If creating, invalidate carriers list
+          queryClient.invalidateQueries({ queryKey: ["carriers"] });
         }
         // Close modal - onClose callback will handle refresh
         onClose();
@@ -231,6 +241,7 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
                   id="truck-select"
                   className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                   disabled={isSubmitting}
+                  value={selectedTruck?._id || carrier?.truck?._id || carrier?.truck || ""}
                   onChange={(e) => {
                     const truck = trucks.find(t => t._id === e.target.value);
                     setSelectedTruck(truck || null);

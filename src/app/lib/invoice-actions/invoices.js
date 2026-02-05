@@ -73,12 +73,21 @@ export async function createInvoice(invoiceData) {
     // Extract trip information from cars
     const carIds = invoiceData.carIds || [];
     const tripNumbersSet = new Set();
+    const tripIdsSet = new Set();
     const tripDatesSet = new Set();
+    const truckNumbersMap = new Map(); // Map tripNumber to truckNumber
     
     if (carIds.length > 0) {
-      // Fetch cars with their carrier information
+      // Fetch cars with their carrier and truck information
       const cars = await Car.find({ _id: { $in: carIds } })
-        .populate("carrier", "tripNumber name type date")
+        .populate({
+          path: "carrier",
+          select: "tripNumber name type date _id truck",
+          populate: {
+            path: "truck",
+            select: "number",
+          }
+        })
         .lean();
       
       cars.forEach((car) => {
@@ -86,13 +95,25 @@ export async function createInvoice(invoiceData) {
           // Only track trips (not companies)
           if (car.carrier.type === "trip" && car.carrier.tripNumber) {
             tripNumbersSet.add(car.carrier.tripNumber);
+            if (car.carrier._id) {
+              tripIdsSet.add(car.carrier._id.toString());
+            }
             if (car.carrier.date) {
               tripDatesSet.add(new Date(car.carrier.date).toISOString());
+            }
+            // Store truck number for this trip
+            if (car.carrier.truck && car.carrier.truck.number) {
+              truckNumbersMap.set(car.carrier.tripNumber, car.carrier.truck.number);
             }
           }
         }
       });
     }
+    
+    // Create truckNumbers array matching tripNumbers order
+    const truckNumbers = Array.from(tripNumbersSet).map(tripNumber => 
+      truckNumbersMap.get(tripNumber) || null
+    ).filter(num => num !== null);
 
     const invoice = new Invoice({
       invoiceNumber,
@@ -111,7 +132,9 @@ export async function createInvoice(invoiceData) {
       descriptions: invoiceData.descriptions || [],
       isActive: invoiceData.isActive || "",
       tripNumbers: Array.from(tripNumbersSet),
+      tripIds: Array.from(tripIdsSet).map(id => new mongoose.Types.ObjectId(id)),
       tripDates: Array.from(tripDatesSet).map(dateStr => new Date(dateStr)),
+      truckNumbers: truckNumbers,
       payments: [], // Initialize empty payments array
       paymentStatus: "unpaid", // Initialize as unpaid
     });
@@ -276,6 +299,31 @@ export async function getInvoices(searchParams = {}) {
       .skip(skip)
       .limit(limit)
       .lean();
+    
+    // Populate missing tripIds for old invoices
+    for (const invoice of invoices) {
+      if (invoice.tripNumbers && invoice.tripNumbers.length > 0 && (!invoice.tripIds || invoice.tripIds.length === 0)) {
+        // Look up trip IDs from trip numbers
+        const tripIds = [];
+        for (const tripNumber of invoice.tripNumbers) {
+          const carrier = await Carrier.findOne({ 
+            tripNumber: tripNumber,
+            type: "trip",
+            ...(session.role !== "super_admin" ? { userId: new mongoose.Types.ObjectId(session.userId) } : {})
+          }).select("_id").lean();
+          if (carrier) {
+            tripIds.push(carrier._id.toString());
+          }
+        }
+        if (tripIds.length > 0) {
+          invoice.tripIds = tripIds; // Already strings from toString()
+          // Optionally update the invoice in database (async, don't wait)
+          Invoice.findByIdAndUpdate(invoice._id, { tripIds: tripIds.map(id => new mongoose.Types.ObjectId(id)) }).catch(err => {
+            console.error("Error updating invoice tripIds:", err);
+          });
+        }
+      }
+    }
     
     const total = await Invoice.countDocuments(query);
 

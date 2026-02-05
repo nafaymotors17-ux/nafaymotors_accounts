@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, Plus, Trash2, DollarSign, Edit, Wrench, AlertTriangle, ChevronLeft, ChevronRight, Filter } from "lucide-react";
+import { X, Plus, Trash2, DollarSign, Wrench, AlertTriangle, ChevronLeft, ChevronRight, Filter } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
 import TruckExpenseForm from "../components/TruckExpenseForm";
 
@@ -21,7 +21,6 @@ export default function TruckDetailPage() {
   const truckId = params.truckId;
 
   const [showExpenseForm, setShowExpenseForm] = useState(false);
-  const [editingExpense, setEditingExpense] = useState(null);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(25);
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -30,7 +29,7 @@ export default function TruckDetailPage() {
   const [maintenanceWarningDismissed, setMaintenanceWarningDismissed] = useState(false);
 
   // Fetch truck data
-  const { data: truckData, isLoading: truckLoading } = useQuery({
+  const { data: truckData, isLoading: truckLoading, refetch: refetchTruck } = useQuery({
     queryKey: ["truck", truckId],
     queryFn: async () => {
       const response = await fetch(`/api/trucks/${truckId}`);
@@ -39,6 +38,8 @@ export default function TruckDetailPage() {
     },
     enabled: !!truckId,
     staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
   });
 
   // Build query params for expenses
@@ -88,12 +89,14 @@ export default function TruckDetailPage() {
     deleteExpenseMutation.mutate(expenseId);
   };
 
-  const handleCloseExpenseForm = () => {
+  const handleCloseExpenseForm = async () => {
     setShowExpenseForm(false);
-    setEditingExpense(null);
+    // Invalidate and refetch to ensure fresh data
     queryClient.invalidateQueries({ queryKey: ["truck-expenses", truckId] });
     queryClient.invalidateQueries({ queryKey: ["truck", truckId] });
     queryClient.invalidateQueries({ queryKey: ["trucks"] });
+    // Refetch truck data immediately to show updated maintenance info
+    await queryClient.refetchQueries({ queryKey: ["truck", truckId] });
   };
 
   const handleFilterChange = () => {
@@ -378,7 +381,7 @@ export default function TruckDetailPage() {
                           {expense.category === "fuel" && expense.pricePerLiter ? `R${expense.pricePerLiter.toFixed(2)}` : "-"}
                         </td>
                         <td className="px-2 py-1.5 text-[10px]">
-                          {expense.category === "maintenance" && expense.meterReading 
+                          {(expense.category === "maintenance" || expense.category === "tyre") && expense.meterReading 
                             ? expense.meterReading.toLocaleString("en-US") 
                             : "-"}
                         </td>
@@ -393,16 +396,6 @@ export default function TruckDetailPage() {
                         </td>
                         <td className="px-2 py-1.5 text-center">
                           <div className="flex items-center justify-center gap-1">
-                            <button
-                              onClick={() => {
-                                setEditingExpense(expense);
-                                setShowExpenseForm(true);
-                              }}
-                              className="text-blue-600 hover:text-blue-800"
-                              title="Edit"
-                            >
-                              <Edit className="w-3.5 h-3.5" />
-                            </button>
                             <button
                               onClick={() => handleDeleteExpense(expense._id)}
                               className="text-red-600 hover:text-red-800"
@@ -474,6 +467,28 @@ export default function TruckDetailPage() {
             <div className="bg-white rounded-lg shadow-sm p-3">
               <h3 className="text-xs font-semibold text-gray-700 mb-2">Overview</h3>
               <div className="space-y-2">
+                {/* Next Maintenance - Highlighted at Top */}
+                <div className={`p-3 rounded-lg border-2 ${
+                  maintenanceStatus === "overdue" ? "bg-red-100 border-red-400" : 
+                  maintenanceStatus === "due_soon" ? "bg-yellow-100 border-yellow-400" : 
+                  "bg-green-100 border-green-400"
+                }`}>
+                  <p className="text-[9px] font-semibold text-gray-700 mb-1 uppercase tracking-wide">Next Maintenance At</p>
+                  <p className={`text-lg font-bold ${
+                    maintenanceStatus === "overdue" ? "text-red-700" : 
+                    maintenanceStatus === "due_soon" ? "text-yellow-700" : 
+                    "text-green-700"
+                  }`}>
+                    {nextMaintenanceKm.toLocaleString("en-US")} km
+                  </p>
+                  <p className={`text-[9px] mt-1 ${
+                    maintenanceStatus === "overdue" ? "text-red-600" : 
+                    maintenanceStatus === "due_soon" ? "text-yellow-600" : 
+                    "text-green-600"
+                  }`}>
+                    {maintenanceDisplay}
+                  </p>
+                </div>
                 <div className="bg-blue-50 p-2 rounded">
                   <p className="text-[9px] text-gray-600 mb-0.5">Current KM</p>
                   <p className="text-sm font-bold text-blue-600">
@@ -581,7 +596,7 @@ export default function TruckDetailPage() {
         <TruckExpenseForm
           truckId={truckId}
           truck={truck}
-          expense={editingExpense}
+          expense={null}
           onClose={handleCloseExpenseForm}
         />
       )}

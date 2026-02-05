@@ -87,11 +87,26 @@ export async function POST(request, { params }) {
       );
     }
 
-    // Validate category
-    const validCategories = ["fuel", "driver_rent", "taxes", "tool_taxes", "on_road", "maintenance", "tyre", "others"];
+    // Validate category - maintenance and tyre are not allowed for trips (only for trucks)
+    const validCategories = ["fuel", "driver_rent", "taxes", "tool_taxes", "on_road", "others"];
     if (!validCategories.includes(category)) {
       return NextResponse.json(
-        { error: "Invalid category" },
+        { error: "Invalid category. Maintenance and tyre expenses are for trucks only, not trips." },
+        { status: 400 }
+      );
+    }
+    
+    // Explicitly reject maintenance and tyre categories
+    if (category === "maintenance") {
+      return NextResponse.json(
+        { error: "Maintenance expenses are for trucks only, not trips. Please add maintenance expenses from the truck detail page." },
+        { status: 400 }
+      );
+    }
+    
+    if (category === "tyre") {
+      return NextResponse.json(
+        { error: "Tyre expenses are for trucks only, not trips. Please add tyre expenses from the truck detail page." },
         { status: 400 }
       );
     }
@@ -139,7 +154,6 @@ export async function POST(request, { params }) {
       liters: category === "fuel" && liters ? parseFloat(liters) : undefined,
       pricePerLiter: category === "fuel" && pricePerLiter ? parseFloat(pricePerLiter) : undefined,
       driverRentDriver: category === "driver_rent" && driver ? new mongoose.Types.ObjectId(driver) : undefined,
-      meterReading: category === "maintenance" && meterReading ? parseFloat(meterReading) : undefined,
       date: date ? new Date(date) : new Date(),
     });
 
