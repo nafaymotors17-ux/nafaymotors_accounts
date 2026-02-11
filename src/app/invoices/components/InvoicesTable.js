@@ -225,21 +225,6 @@ export default function InvoicesTable({
         currentY += 6;
       }
 
-      // Bank Details (if available)
-      if (senderBankDetails) {
-        currentY += 2;
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(9);
-        doc.setTextColor(100);
-        const bankLines = senderBankDetails.split('\n');
-        bankLines.forEach((line) => {
-          if (line.trim()) {
-            doc.text(line.trim(), margin, currentY);
-            currentY += 4;
-          }
-        });
-      }
-
       // TAX INVOICE Title
       currentY += 4;
       doc.setFont("helvetica", "bold");

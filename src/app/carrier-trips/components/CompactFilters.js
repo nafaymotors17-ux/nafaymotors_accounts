@@ -22,7 +22,6 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
     const startDate = formData.get("startDate");
     const endDate = formData.get("endDate");
     const company = formData.get("company");
-    const carrierName = formData.get("carrierName");
     const tripNumber = formData.get("tripNumber");
     const isActive = formData.get("isActive");
     const userId = formData.get("userId");
@@ -31,7 +30,6 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
     if (startDate) newParams.set("startDate", startDate);
     if (endDate) newParams.set("endDate", endDate);
     if (company) newParams.set("company", company);
-    if (carrierName) newParams.set("carrierName", carrierName);
     if (tripNumber) newParams.set("tripNumber", tripNumber);
     if (isActive) newParams.set("isActive", isActive);
     if (userId && isSuperAdmin) newParams.set("userId", userId);
@@ -50,13 +48,12 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
   // Derived values with useMemo
   const hasActiveFilters = useMemo(() => 
     !!(params.get("startDate") || params.get("endDate") || params.get("company") || 
-       params.get("carrierName") || params.get("tripNumber") || params.get("isActive") || 
+       params.get("tripNumber") || params.get("isActive") || 
        params.get("userId") || params.get("globalSearch")),
     [params]
   );
   
   const selectedCompany = useMemo(() => params.get("company") || "", [params]);
-  const selectedCarrierName = useMemo(() => params.get("carrierName") || "", [params]);
   const selectedTripNumber = useMemo(() => params.get("tripNumber") || "", [params]);
   const startDate = useMemo(() => params.get("startDate") || "", [params]);
   const endDate = useMemo(() => params.get("endDate") || "", [params]);
@@ -128,22 +125,9 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
             </select>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <label className="text-[10px] font-medium text-gray-600 whitespace-nowrap">
-              Carrier:
-            </label>
-            <input
-              type="text"
-              name="carrierName"
-              key={`carrierName-${selectedCarrierName}`}
-              defaultValue={selectedCarrierName}
-              placeholder="Search carrier..."
-              className="w-32 px-1.5 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
 
           <div className="flex items-center gap-1.5">
-            <label className="text-[10px] font-medium text-gray-600 whitespace-nowrap">
+            {/* <label className="text-[10px] font-medium text-gray-600 whitespace-nowrap">
               Trip #:
             </label>
             <input
@@ -154,7 +138,7 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
               placeholder="Trip # (comma-separated)"
               className="w-32 px-1.5 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
               title="Enter trip numbers separated by commas (e.g., TRIP-001, TRIP-002, TRIP-003)"
-            />
+            /> */}
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -166,8 +150,9 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
               name="globalSearch"
               key={`globalSearch-${globalSearchValue}`}
               defaultValue={globalSearchValue}
-              placeholder="Search all fields..."
-              className="w-40 px-1.5 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Search trips, trucks..."
+              className="w-48 px-1.5 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              title="Search by trip number or truck name/number"
             />
           </div>
 
