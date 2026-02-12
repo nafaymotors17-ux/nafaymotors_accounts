@@ -6,7 +6,7 @@ import { X, Download, Plus, Trash2, FileSpreadsheet, Building2 } from "lucide-re
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
-import { getAllCompanies, getCompanyByName } from "@/app/lib/carriers-actions/companies";
+import { getAllCompanies } from "@/app/lib/carriers-actions/companies";
 import { useUser } from "@/app/components/UserContext";
 import { formatDate } from "@/app/lib/utils/dateFormat";
 
@@ -109,17 +109,6 @@ export default function InvoiceGenerator({ carrier, cars, companies = [], onClos
     }
 
     try {
-      // Get client company bank details
-      let clientBankDetails = "";
-      try {
-        const clientCompanyResult = await getCompanyByName(clientName.trim().toUpperCase());
-        if (clientCompanyResult.success && clientCompanyResult.company) {
-          clientBankDetails = clientCompanyResult.company.bankDetails || "";
-        }
-      } catch (err) {
-        console.error("Error fetching client bank details:", err);
-      }
-
       // Get sender (user) bank details from user context
       const senderBankDetails = fullUserData?.bankDetails?.trim() || "";
 
@@ -283,56 +272,25 @@ export default function InvoiceGenerator({ carrier, cars, companies = [], onClos
         finalY += 3;
       }
 
-      // Bank Details section - Show sender's bank details first, then client's
-      if (senderBankDetails || clientBankDetails) {
+      // Bank Details section - Show sender's bank details
+      if (senderBankDetails) {
         finalY += 5;
         doc.setFont("helvetica", "bold");
         doc.setFontSize(10);
         doc.setTextColor(31, 41, 55);
+        doc.text("BANK DETAILS:", margin, finalY);
+        finalY += 6;
         
-        // Sender's bank details (if available)
-        if (senderBankDetails) {
-          doc.text("BANK DETAILS:", margin, finalY);
-          finalY += 6;
-          
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(9);
-          doc.setTextColor(100);
-          const senderBankLines = senderBankDetails.split('\n');
-          senderBankLines.forEach((line) => {
-            if (line.trim()) {
-              doc.text(line.trim(), margin + 5, finalY);
-              finalY += 5;
-            }
-          });
-          finalY += 3; // Add spacing before client bank details if both exist
-        }
-        
-        // Client's bank details (if available)
-        if (clientBankDetails) {
-          if (senderBankDetails) {
-            // Add a separator if both exist
-            doc.setFont("helvetica", "bold");
-            doc.setFontSize(10);
-            doc.setTextColor(31, 41, 55);
-            doc.text("CLIENT BANK DETAILS:", margin, finalY);
-            finalY += 6;
-          } else {
-            doc.text("BANK DETAILS:", margin, finalY);
-            finalY += 6;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(100);
+        const senderBankLines = senderBankDetails.split('\n');
+        senderBankLines.forEach((line) => {
+          if (line.trim()) {
+            doc.text(line.trim(), margin + 5, finalY);
+            finalY += 5;
           }
-          
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(9);
-          doc.setTextColor(100);
-          const clientBankLines = clientBankDetails.split('\n');
-          clientBankLines.forEach((line) => {
-            if (line.trim()) {
-              doc.text(line.trim(), margin + 5, finalY);
-              finalY += 5;
-            }
-          });
-        }
+        });
       }
 
       const fileName = `Invoice_${invoiceNumber || carrier.tripNumber}_${new Date().toISOString().split("T")[0]}.pdf`;
@@ -360,17 +318,6 @@ export default function InvoiceGenerator({ carrier, cars, companies = [], onClos
     }
 
     try {
-      // Get client company bank details
-      let clientBankDetails = "";
-      try {
-        const clientCompanyResult = await getCompanyByName(clientName.trim().toUpperCase());
-        if (clientCompanyResult.success && clientCompanyResult.company) {
-          clientBankDetails = clientCompanyResult.company.bankDetails || "";
-        }
-      } catch (err) {
-        console.error("Error fetching client bank details:", err);
-      }
-
       // Get sender (user) bank details from user context
       const senderBankDetails = fullUserData?.bankDetails?.trim() || "";
 
@@ -425,36 +372,16 @@ export default function InvoiceGenerator({ carrier, cars, companies = [], onClos
         });
       }
 
-      // Add bank details - Show sender's bank details first, then client's
-      if (senderBankDetails || clientBankDetails) {
+      // Add bank details - Show sender's bank details
+      if (senderBankDetails) {
         invoiceData.push([]);
-        
-        // Sender's bank details (if available)
-        if (senderBankDetails) {
-          invoiceData.push(["BANK DETAILS:"]);
-          const senderBankLines = senderBankDetails.split('\n');
-          senderBankLines.forEach((line) => {
-            if (line.trim()) {
-              invoiceData.push([line.trim()]);
-            }
-          });
-        }
-        
-        // Client's bank details (if available)
-        if (clientBankDetails) {
-          if (senderBankDetails) {
-            invoiceData.push([]);
-            invoiceData.push(["CLIENT BANK DETAILS:"]);
-          } else {
-            invoiceData.push(["BANK DETAILS:"]);
+        invoiceData.push(["BANK DETAILS:"]);
+        const senderBankLines = senderBankDetails.split('\n');
+        senderBankLines.forEach((line) => {
+          if (line.trim()) {
+            invoiceData.push([line.trim()]);
           }
-          const clientBankLines = clientBankDetails.split('\n');
-          clientBankLines.forEach((line) => {
-            if (line.trim()) {
-              invoiceData.push([line.trim()]);
-            }
-          });
-        }
+        });
       }
 
       const ws = XLSX.utils.aoa_to_sheet(invoiceData);

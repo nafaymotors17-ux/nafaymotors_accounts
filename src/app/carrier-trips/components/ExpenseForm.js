@@ -66,10 +66,71 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
       }
       return response.json();
     },
-    onSuccess: async () => {
-      // Invalidate and refetch queries to refresh the trip data immediately
+    onMutate: async (newExpenseData) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: ["trip", carrierId] });
+      
+      // Snapshot previous value
+      const previousTripData = queryClient.getQueryData(["trip", carrierId]);
+      
+      // Get driver name from trip prop if available
+      let driverName = "";
+      if (newExpenseData.driver && trip?.truckData?.drivers) {
+        const driver = trip.truckData.drivers.find(
+          d => String(d._id) === String(newExpenseData.driver)
+        );
+        driverName = driver?.name || "";
+      }
+      
+      // Create optimistic expense object
+      const optimisticExpense = {
+        _id: `temp-${Date.now()}`,
+        category: newExpenseData.category,
+        amount: newExpenseData.amount || 0,
+        details: newExpenseData.details || "",
+        date: newExpenseData.date,
+        liters: newExpenseData.liters,
+        pricePerLiter: newExpenseData.pricePerLiter,
+        driverRentDriver: newExpenseData.driver ? { _id: newExpenseData.driver, name: driverName } : undefined,
+        driver: newExpenseData.driver ? { _id: newExpenseData.driver, name: driverName } : undefined,
+      };
+      
+      // Optimistically update cache - add expense immediately
+      if (previousTripData) {
+        queryClient.setQueryData(["trip", carrierId], (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            expenses: [optimisticExpense, ...(old.expenses || [])],
+            totalExpense: (old.totalExpense || 0) + (optimisticExpense.amount || 0),
+          };
+        });
+      }
+      
+      return { previousTripData };
+    },
+    onError: (err, newExpenseData, context) => {
+      // Rollback on error
+      if (context?.previousTripData) {
+        queryClient.setQueryData(["trip", carrierId], context.previousTripData);
+      }
+      // Set error state so user sees the error
+      setError(err.message || "Failed to create expense. Changes have been reverted.");
+      setIsSubmitting(false);
+    },
+    onSuccess: (data) => {
+      // Replace optimistic expense with real one from server
+      queryClient.setQueryData(["trip", carrierId], (old) => {
+        if (!old) return old;
+        // Remove temporary expense and add real one
+        const expenses = (old.expenses || []).filter(exp => !exp._id?.startsWith("temp-"));
+        return {
+          ...old,
+          expenses: [data.expense, ...expenses],
+        };
+      });
+      // Invalidate to ensure all related queries are fresh
       queryClient.invalidateQueries({ queryKey: ["trip", carrierId] });
-      await queryClient.refetchQueries({ queryKey: ["trip", carrierId] });
       queryClient.invalidateQueries({ queryKey: ["carriers"] });
       queryClient.invalidateQueries({ queryKey: ["driverRentPayments"] });
     },
@@ -88,10 +149,66 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
       }
       return response.json();
     },
-    onSuccess: async () => {
-      // Invalidate and refetch queries to refresh the trip data immediately
+    onMutate: async (updatedExpenseData) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: ["trip", carrierId] });
+      
+      // Snapshot previous value
+      const previousTripData = queryClient.getQueryData(["trip", carrierId]);
+      
+      // Optimistically update cache - update expense immediately
+      if (previousTripData) {
+        queryClient.setQueryData(["trip", carrierId], (old) => {
+          if (!old) return old;
+          const expenseIdStr = String(expense._id);
+          const oldExpense = old.expenses?.find(exp => String(exp._id) === expenseIdStr);
+          const oldAmount = oldExpense?.amount || 0;
+          const newAmount = updatedExpenseData.amount || 0;
+          
+          return {
+            ...old,
+            expenses: old.expenses?.map(exp => {
+              if (String(exp._id) === expenseIdStr) {
+                return {
+                  ...exp,
+                  ...updatedExpenseData,
+                  _id: exp._id, // Preserve original ID
+                };
+              }
+              return exp;
+            }) || [],
+            totalExpense: old.totalExpense !== undefined
+              ? old.totalExpense - oldAmount + newAmount
+              : old.totalExpense,
+          };
+        });
+      }
+      
+      return { previousTripData };
+    },
+    onError: (err, updatedExpenseData, context) => {
+      // Rollback on error
+      if (context?.previousTripData) {
+        queryClient.setQueryData(["trip", carrierId], context.previousTripData);
+      }
+      // Set error state so user sees the error
+      setError(err.message || "Failed to update expense. Changes have been reverted.");
+      setIsSubmitting(false);
+    },
+    onSuccess: (data) => {
+      // Update with real data from server
+      queryClient.setQueryData(["trip", carrierId], (old) => {
+        if (!old) return old;
+        const expenseIdStr = String(expense._id);
+        return {
+          ...old,
+          expenses: old.expenses?.map(exp => 
+            String(exp._id) === expenseIdStr ? data.expense : exp
+          ) || [],
+        };
+      });
+      // Invalidate to ensure all related queries are fresh
       queryClient.invalidateQueries({ queryKey: ["trip", carrierId] });
-      await queryClient.refetchQueries({ queryKey: ["trip", carrierId] });
       queryClient.invalidateQueries({ queryKey: ["carriers"] });
       queryClient.invalidateQueries({ queryKey: ["driverRentPayments"] });
     },
@@ -124,13 +241,20 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
         expenseData.driver = driverId;
       }
 
-      if (expense) {
-        await updateExpenseMutation.mutateAsync(expenseData);
-      } else {
-        await createExpenseMutation.mutateAsync(expenseData);
+      try {
+        if (expense) {
+          await updateExpenseMutation.mutateAsync(expenseData);
+        } else {
+          await createExpenseMutation.mutateAsync(expenseData);
+        }
+        // Only close if mutation succeeded (no error thrown)
+        onClose();
+      } catch (mutationError) {
+        // Error is already handled in onError callback, but we catch here
+        // to prevent form from closing on error
+        // Error message is set in onError callback
+        throw mutationError; // Re-throw to be caught by outer catch
       }
-
-      onClose();
     } catch (err) {
       setError(err.message || "Failed to save expense");
     } finally {
@@ -148,7 +272,8 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600"
-            disabled={isSubmitting}
+            disabled={isSubmitting || createExpenseMutation.isPending || updateExpenseMutation.isPending}
+            title={isSubmitting || createExpenseMutation.isPending || updateExpenseMutation.isPending ? "Please wait for the operation to complete" : "Close"}
           >
             <X className="w-5 h-5" />
           </button>
@@ -331,16 +456,23 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
               type="button"
               onClick={onClose}
               className="px-4 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-              disabled={isSubmitting}
+              disabled={isSubmitting || createExpenseMutation.isPending || updateExpenseMutation.isPending}
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
-              className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed"
+              disabled={isSubmitting || createExpenseMutation.isPending || updateExpenseMutation.isPending}
+              className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              {isSubmitting ? "Saving..." : expense ? "Update" : "Add"}
+              {(isSubmitting || createExpenseMutation.isPending || updateExpenseMutation.isPending) ? (
+                <>
+                  <span className="animate-spin">⏳</span>
+                  <span>Saving...</span>
+                </>
+              ) : (
+                expense ? "Update" : "Add"
+              )}
             </button>
           </div>
         </form>

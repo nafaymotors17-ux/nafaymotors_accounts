@@ -277,20 +277,71 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
     mutationFn: async ({ carsData, carrierId, userId }) => {
       return await createMultipleCars(carsData, carrierId, userId);
     },
+    onMutate: async ({ carsData, carrierId }) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: ["trip", carrierId] });
+      
+      // Snapshot previous value
+      const previousTripData = queryClient.getQueryData(["trip", carrierId]);
+      
+      // Create optimistic car objects
+      const optimisticCars = carsData.map((carData, index) => ({
+        _id: `temp-car-${Date.now()}-${index}`,
+        stockNo: carData.stockNo,
+        name: carData.name,
+        chassis: carData.chassis,
+        amount: parseFloat(carData.amount) || 0,
+        companyName: carData.companyName,
+        date: carData.date || new Date().toISOString().split("T")[0],
+      }));
+      
+      // Calculate total amount for new cars
+      const newCarsTotal = optimisticCars.reduce((sum, car) => sum + (car.amount || 0), 0);
+      
+      // Optimistically update cache - add cars immediately
+      if (previousTripData) {
+        queryClient.setQueryData(["trip", carrierId], (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            cars: [...(old.cars || []), ...optimisticCars],
+            totalAmount: (old.totalAmount || 0) + newCarsTotal,
+          };
+        });
+      }
+      
+      return { previousTripData };
+    },
+    onError: (error, variables, context) => {
+      // Rollback on error
+      if (context?.previousTripData) {
+        queryClient.setQueryData(["trip", variables.carrierId], context.previousTripData);
+      }
+      setError(error.message || "Failed to add cars. Changes have been reverted.");
+    },
     onSuccess: async (result, variables) => {
       if (result.success) {
-        // Invalidate and refetch queries to refresh the trip data immediately
         const carrierId = variables.carrierId;
+        
+        // Replace optimistic cars with real ones from server
+        queryClient.setQueryData(["trip", carrierId], (old) => {
+          if (!old) return old;
+          // Remove temporary cars and add real ones
+          const cars = (old.cars || []).filter(car => !car._id?.startsWith("temp-car-"));
+          return {
+            ...old,
+            cars: [...cars, ...result.cars],
+          };
+        });
+        
+        // Invalidate to ensure all related queries are fresh
         queryClient.invalidateQueries({ queryKey: ["trip", carrierId] });
-        await queryClient.refetchQueries({ queryKey: ["trip", carrierId] });
         queryClient.invalidateQueries({ queryKey: ["carriers"] });
         queryClient.invalidateQueries({ queryKey: ["carrierCars"] });
+        
         // Close modal after successful creation
         onClose();
       }
-    },
-    onError: (error) => {
-      setError(error.message || "Failed to add cars");
     },
   });
 
@@ -348,7 +399,8 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600"
-            disabled={isSubmittingState}
+            disabled={isSubmittingState || createCarsMutation.isPending}
+            title={isSubmittingState || createCarsMutation.isPending ? "Please wait for the operation to complete" : "Close"}
           >
             <X className="w-5 h-5" />
           </button>
@@ -536,18 +588,23 @@ export default function CarForm({ carrier, companies, users = [], car, onClose }
               type="button"
               onClick={onClose}
               className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-              disabled={isSubmittingState}
+              disabled={isSubmittingState || createCarsMutation.isPending}
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={isSubmittingState}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed"
+              disabled={isSubmittingState || createCarsMutation.isPending}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              {isSubmittingState
-                ? "Saving..."
-                : `Add ${carRows.length} Car${carRows.length === 1 ? '' : 's'}`}
+              {(isSubmittingState || createCarsMutation.isPending) ? (
+                <>
+                  <span className="animate-spin">⏳</span>
+                  <span>Saving...</span>
+                </>
+              ) : (
+                `Add ${carRows.length} Car${carRows.length === 1 ? '' : 's'}`
+              )}
             </button>
           </div>
         </form>

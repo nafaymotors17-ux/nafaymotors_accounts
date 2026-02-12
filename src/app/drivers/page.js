@@ -65,6 +65,10 @@ export default function DriversPage() {
             aValue = (a.email || "").toLowerCase();
             bValue = (b.email || "").toLowerCase();
             break;
+          case "createdAt":
+            aValue = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            bValue = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            break;
           default:
             return 0;
         }
@@ -77,7 +81,12 @@ export default function DriversPage() {
           }
         }
 
-        return 0;
+        // Handle number comparison (for createdAt)
+        if (sortDirection === "asc") {
+          return aValue - bValue;
+        } else {
+          return bValue - aValue;
+        }
       });
     }
 

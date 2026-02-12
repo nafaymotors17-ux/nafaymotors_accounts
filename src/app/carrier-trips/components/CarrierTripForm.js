@@ -168,7 +168,7 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
               {user?.role === "super_admin" && users.length > 0 && (
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-0.5">
-                    Create for User (Optional)
+                    Create for User
                   </label>
                   <select
                     name="userId"
@@ -234,7 +234,7 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
 
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-0.5">
-                  Assign Truck <span className="text-gray-500 font-normal">(Optional)</span>
+                  Assign Truck <span className="text-gray-500 font-normal"></span>
                 </label>
                 <select
                   name="truck"
@@ -314,7 +314,7 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
 
               <div id="truck-distance-field" style={{ display: selectedTruck ? 'block' : 'none' }}>
                 <label className="block text-xs font-medium text-gray-700 mb-0.5">
-                  Trip Distance (KMs) <span className="text-gray-500 font-normal">(Optional)</span>
+                  Trip Distance (KMs) <span className="text-gray-500 font-normal"></span>
                 </label>
                 <input
                   type="number"

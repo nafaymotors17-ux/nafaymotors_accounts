@@ -129,7 +129,7 @@ export async function GET(request, { params }) {
     const profit = totalAmount - totalExpense;
 
     // Direct JSON serialization is faster than double parsing
-    // Add cache headers for better performance (short cache for dynamic data)
+    // No cache headers - always fetch fresh data for real-time updates
     return NextResponse.json(
       {
         carrier,
@@ -141,7 +141,9 @@ export async function GET(request, { params }) {
       },
       {
         headers: {
-          "Cache-Control": "private, max-age=10, stale-while-revalidate=30",
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+          "Pragma": "no-cache",
+          "Expires": "0",
         },
       }
     );

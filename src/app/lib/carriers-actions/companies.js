@@ -82,7 +82,6 @@ export async function getAllCompanies() {
           name: company.name,
           companyName: company.companyName || company.name,
           address: company.address || "",
-          bankDetails: company.bankDetails || "",
           taxId: company.taxId || "",
           isInvoiceSender: company.isInvoiceSender || false,
           type: 'company',
@@ -195,46 +194,3 @@ const company = await new Company({
   }
 }
 
-export async function updateCompanyBankDetails(companyName, bankDetails) {
-  await connectDB();
-  try {
-    const session = await getSession();
-    if (!session) {
-      return { error: "Unauthorized" };
-    }
-
-    const trimmedName = companyName.trim().toUpperCase();
-    
-    if (!trimmedName) {
-      return { error: "Company name is required" };
-    }
-
-    // Find the company
-    const company = await Company.findOne({ name: trimmedName });
-    
-    if (!company) {
-      return { error: "Company not found" };
-    }
-
-    // Check if user has permission (must be owner or super admin)
-    const isOwner = company.userId.toString() === session.userId.toString();
-    if (!isOwner && session.role !== "super_admin") {
-      return { error: "Unauthorized to update this company" };
-    }
-
-    // Update bank details
-    company.bankDetails = bankDetails ? bankDetails.trim() : "";
-    await company.save();
-
-    revalidatePath("/companies");
-    revalidatePath("/carrier-trips");
-    
-    return {
-      success: true,
-      company: JSON.parse(JSON.stringify(company))
-    };
-  } catch (error) {
-    console.error("Error updating company bank details:", error);
-    return { error: "Failed to update bank details" };
-  }
-}

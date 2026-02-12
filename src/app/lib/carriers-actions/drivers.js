@@ -273,7 +273,7 @@ export async function deleteDriver(driverId) {
 
     // Check if driver is assigned to any trucks
     const Truck = (await import("@/app/lib/models/Truck")).default;
-    const trucksWithDriver = await Truck.find({ driver: driverId });
+    const trucksWithDriver = await Truck.find({ drivers: driverId });
     
     if (trucksWithDriver.length > 0) {
       return { 

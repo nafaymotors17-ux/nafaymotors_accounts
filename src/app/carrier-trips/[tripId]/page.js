@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, Plus, Trash2, DollarSign, Truck, Edit } from "lucide-react";
+import { X, Plus, Trash2, DollarSign, Truck, Edit, AlertCircle, CheckCircle2 } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
 import ExpenseForm from "../components/ExpenseForm";
 import CarForm from "../components/CarForm";
@@ -28,6 +28,7 @@ export default function TripDetailPage() {
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
   const [showCarForm, setShowCarForm] = useState(false);
+  const [notification, setNotification] = useState(null);
 
   // Fetch trip data (includes expenses and cars in one call) - Priority query
   const { data: tripData, isLoading: tripLoading, refetch } = useQuery({
@@ -39,7 +40,8 @@ export default function TripDetailPage() {
     },
     enabled: !!tripId,
     staleTime: 0, // Always fetch fresh data
-    refetchOnMount: true, // Refetch when component mounts
+    gcTime: 0, // Don't cache in background (formerly cacheTime)
+    refetchOnMount: "always", // Always refetch when component mounts
     refetchOnWindowFocus: true, // Refetch when window comes into focus
   });
 
@@ -59,17 +61,108 @@ export default function TripDetailPage() {
       if (!response.ok) throw new Error("Failed to delete expense");
       return response.json();
     },
+    onMutate: async (expenseId) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: ["trip", tripId] });
+      
+      // Snapshot previous value
+      const previousTripData = queryClient.getQueryData(["trip", tripId]);
+      
+      // Optimistically update cache - remove expense immediately
+      if (previousTripData) {
+        queryClient.setQueryData(["trip", tripId], (old) => {
+          if (!old) return old;
+          // Convert both IDs to strings for comparison (handles MongoDB ObjectId)
+          const expenseIdStr = String(expenseId);
+          const deletedExpense = old.expenses?.find(exp => String(exp._id) === expenseIdStr);
+          return {
+            ...old,
+            expenses: old.expenses?.filter(exp => String(exp._id) !== expenseIdStr) || [],
+            totalExpense: old.totalExpense && deletedExpense
+              ? old.totalExpense - (deletedExpense.amount || 0)
+              : old.totalExpense,
+          };
+        });
+      }
+      
+      return { previousTripData };
+    },
+    onError: (err, expenseId, context) => {
+      // Rollback on error
+      if (context?.previousTripData) {
+        queryClient.setQueryData(["trip", tripId], context.previousTripData);
+      }
+      // Show error notification
+      setNotification({
+        type: "error",
+        message: err.message || "Failed to delete expense. Changes have been reverted.",
+      });
+      // Auto-hide after 5 seconds
+      setTimeout(() => setNotification(null), 5000);
+    },
     onSuccess: () => {
+      // Show success notification briefly
+      setNotification({
+        type: "success",
+        message: "Expense deleted successfully",
+      });
+      setTimeout(() => setNotification(null), 3000);
+      // Invalidate to ensure data is fresh, but don't block UI
       queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
       queryClient.invalidateQueries({ queryKey: ["carriers"] });
-      // Invalidate driver rent queries so modal shows updated data
       queryClient.invalidateQueries({ queryKey: ["driverRentPayments"] });
     },
   });
 
   const deleteCarMutation = useMutation({
     mutationFn: deleteCar,
+    onMutate: async (carId) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: ["trip", tripId] });
+      
+      // Snapshot previous value
+      const previousTripData = queryClient.getQueryData(["trip", tripId]);
+      
+      // Optimistically update cache - remove car immediately
+      if (previousTripData) {
+        queryClient.setQueryData(["trip", tripId], (old) => {
+          if (!old) return old;
+          // Convert both IDs to strings for comparison (handles MongoDB ObjectId)
+          const carIdStr = String(carId);
+          const deletedCar = old.cars?.find(car => String(car._id) === carIdStr);
+          return {
+            ...old,
+            cars: old.cars?.filter(car => String(car._id) !== carIdStr) || [],
+            totalAmount: old.totalAmount && deletedCar
+              ? old.totalAmount - (deletedCar.amount || 0)
+              : old.totalAmount,
+          };
+        });
+      }
+      
+      return { previousTripData };
+    },
+    onError: (err, carId, context) => {
+      // Rollback on error
+      if (context?.previousTripData) {
+        queryClient.setQueryData(["trip", tripId], context.previousTripData);
+      }
+      // Show error notification
+      setNotification({
+        type: "error",
+        message: err.message || "Failed to delete car. Changes have been reverted.",
+      });
+      // Auto-hide after 5 seconds
+      setTimeout(() => setNotification(null), 5000);
+    },
     onSuccess: () => {
+      // Show success notification briefly
+      setNotification({
+        type: "success",
+        message: "Car deleted successfully",
+      });
+      setTimeout(() => setNotification(null), 3000);
+      // Invalidate to ensure data is fresh, but don't block UI
       queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
       queryClient.invalidateQueries({ queryKey: ["carriers"] });
     },
@@ -86,22 +179,18 @@ export default function TripDetailPage() {
     deleteCarMutation.mutate(carId);
   };
 
-  const handleCloseExpenseForm = async () => {
+  const handleCloseExpenseForm = () => {
     setShowExpenseForm(false);
-    // Refetch immediately to show updated data
-    queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
-    await queryClient.refetchQueries({ queryKey: ["trip", tripId] });
-    queryClient.invalidateQueries({ queryKey: ["carriers"] });
-    // Invalidate driver rent queries so modal shows updated data
-    queryClient.invalidateQueries({ queryKey: ["driverRentPayments"] });
+    setEditingExpense(null);
+    // No need to invalidate here - mutations handle their own cache updates
+    // Only invalidate if form was closed without saving (cancelled)
+    // The mutations already handle optimistic updates and invalidation
   };
 
-  const handleCloseCarForm = async () => {
+  const handleCloseCarForm = () => {
     setShowCarForm(false);
-    // Refetch immediately to show updated data
-    queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
-    await queryClient.refetchQueries({ queryKey: ["trip", tripId] });
-    queryClient.invalidateQueries({ queryKey: ["carriers"] });
+    // No need to invalidate here - mutations handle their own cache updates
+    // The CarForm mutation already handles optimistic updates and invalidation
   };
 
   const trip = tripData?.carrier;
@@ -170,6 +259,32 @@ export default function TripDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Notification Toast */}
+      {notification && (
+        <div className="fixed top-4 right-4 z-50 animate-in slide-in-from-top-5">
+          <div
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg ${
+              notification.type === "error"
+                ? "bg-red-50 border border-red-200 text-red-800"
+                : "bg-green-50 border border-green-200 text-green-800"
+            }`}
+          >
+            {notification.type === "error" ? (
+              <AlertCircle className="w-5 h-5 text-red-600" />
+            ) : (
+              <CheckCircle2 className="w-5 h-5 text-green-600" />
+            )}
+            <p className="text-sm font-medium">{notification.message}</p>
+            <button
+              onClick={() => setNotification(null)}
+              className="ml-2 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+      
       <div className="container mx-auto px-4 py-4">
         {/* Compact Header with Summary */}
         <div className="bg-white rounded-lg shadow-sm p-4 mb-4">
@@ -316,8 +431,13 @@ export default function TripDetailPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {expenses.map((expense, index) => (
-                      <tr key={expense._id} className="hover:bg-gray-50">
+                    {expenses.map((expense, index) => {
+                      const isPending = expense._id?.startsWith("temp-");
+                      return (
+                      <tr 
+                        key={expense._id} 
+                        className={`hover:bg-gray-50 ${isPending ? "opacity-60 animate-pulse" : ""}`}
+                      >
                         <td className="px-2 py-1.5 text-gray-600">{index + 1}</td>
                         <td className="px-2 py-1.5 text-gray-600 whitespace-nowrap text-[10px]">
                           {formatDate(expense.date)}
@@ -344,27 +464,36 @@ export default function TripDetailPage() {
                         </td>
                         <td className="px-2 py-1.5 text-center">
                           <div className="flex items-center justify-center gap-1">
-                            <button
-                              onClick={() => {
-                                setEditingExpense(expense);
-                                setShowExpenseForm(true);
-                              }}
-                              className="text-blue-600 hover:text-blue-800"
-                              title="Edit"
-                            >
-                              <Edit className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteExpense(expense._id)}
-                              className="text-red-600 hover:text-red-800"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {isPending ? (
+                              <span className="text-xs text-gray-500">Saving...</span>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    setEditingExpense(expense);
+                                    setShowExpenseForm(true);
+                                  }}
+                                  className="text-blue-600 hover:text-blue-800"
+                                  title="Edit"
+                                  disabled={deleteExpenseMutation.isPending}
+                                >
+                                  <Edit className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteExpense(expense._id)}
+                                  className="text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title="Delete"
+                                  disabled={deleteExpenseMutation.isPending}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    );
+                    })}
                   </tbody>
                   <tfoot className="bg-gray-100 sticky bottom-0">
                     <tr>
@@ -417,8 +546,13 @@ export default function TripDetailPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {cars.map((car, index) => (
-                      <tr key={car._id} className="hover:bg-gray-50">
+                    {cars.map((car, index) => {
+                      const isPending = car._id?.startsWith("temp-car-");
+                      return (
+                      <tr 
+                        key={car._id} 
+                        className={`hover:bg-gray-50 ${isPending ? "opacity-60 animate-pulse" : ""}`}
+                      >
                         <td className="px-2 py-1.5 text-gray-600">{index + 1}</td>
                         <td className="px-2 py-1.5 text-gray-600 whitespace-nowrap text-[10px]">
                           {formatDate(car.date)}
@@ -431,16 +565,22 @@ export default function TripDetailPage() {
                           R{(car.amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
                         </td>
                         <td className="px-2 py-1.5 text-center">
-                          <button
-                            onClick={() => handleDeleteCar(car._id)}
-                            className="text-red-600 hover:text-red-800"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {isPending ? (
+                            <span className="text-xs text-gray-500">Saving...</span>
+                          ) : (
+                            <button
+                              onClick={() => handleDeleteCar(car._id)}
+                              className="text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="Delete"
+                              disabled={deleteCarMutation.isPending}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </td>
                       </tr>
-                    ))}
+                    );
+                    })}
                   </tbody>
                   <tfoot className="bg-gray-100 sticky bottom-0">
                     <tr>
@@ -469,7 +609,6 @@ export default function TripDetailPage() {
           onClose={() => {
             setShowExpenseForm(false);
             setEditingExpense(null);
-            handleCloseExpenseForm();
           }}
         />
       )}
@@ -479,7 +618,9 @@ export default function TripDetailPage() {
         <CarForm
           carrier={trip}
           companies={companies}
-          onClose={handleCloseCarForm}
+          onClose={() => {
+            setShowCarForm(false);
+          }}
         />
       )}
     </div>

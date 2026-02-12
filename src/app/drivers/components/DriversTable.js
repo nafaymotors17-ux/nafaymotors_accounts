@@ -1,6 +1,7 @@
 "use client";
 
 import { Edit2, Trash2, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { formatDate } from "@/app/lib/utils/dateFormat";
 
 export default function DriversTable({
   drivers,
@@ -63,6 +64,15 @@ export default function DriversTable({
                   User
                 </th>
               )}
+              <th
+                className="px-2 py-1.5 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none"
+                onClick={() => onSort("createdAt")}
+              >
+                <div className="flex items-center">
+                  Created At
+                  {getSortIcon("createdAt")}
+                </div>
+              </th>
               <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-500 uppercase">
                 Actions
               </th>
@@ -100,6 +110,9 @@ export default function DriversTable({
                     {driver.user?.username || "-"}
                   </td>
                 )}
+                <td className="px-2 py-1.5 whitespace-nowrap text-xs text-gray-600">
+                  {driver.createdAt ? formatDate(driver.createdAt) : "-"}
+                </td>
                 <td className="px-2 py-1.5 whitespace-nowrap text-center">
                   <div className="flex items-center justify-center gap-2">
                     <button

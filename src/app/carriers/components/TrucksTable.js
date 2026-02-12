@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Edit2, Trash2, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { formatDate } from "@/app/lib/utils/dateFormat";
 
 export default function TrucksTable({
   trucks,
@@ -70,6 +71,9 @@ export default function TrucksTable({
                   User
                 </th>
               )}
+              <th className="px-2 py-1.5 text-left text-xs font-medium text-gray-500 uppercase">
+                Created At
+              </th>
               <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-500 uppercase">
                 Actions
               </th>
@@ -132,6 +136,9 @@ export default function TrucksTable({
                     {truck.user?.username || "-"}
                   </td>
                 )}
+                <td className="px-2 py-1.5 whitespace-nowrap text-xs text-gray-600">
+                  {truck.createdAt ? formatDate(truck.createdAt) : "-"}
+                </td>
                 <td className="px-2 py-1.5 whitespace-nowrap text-center">
                   <div className="flex items-center justify-center gap-2">
                     <button

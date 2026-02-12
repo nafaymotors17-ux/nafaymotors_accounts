@@ -2,9 +2,10 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getCompanyBalances, setCompanyCredit } from "@/app/lib/invoice-actions/company-balances";
-import { createCompany, updateCompanyBankDetails } from "@/app/lib/carriers-actions/companies";
+import { createCompany } from "@/app/lib/carriers-actions/companies";
 import { useState, useMemo } from "react";
-import { Edit2, X, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, Plus, Building2 } from "lucide-react";
+import { Edit2, X, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, Plus } from "lucide-react";
+import { formatDate } from "@/app/lib/utils/dateFormat";
 
 export default function CompaniesPage() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -16,8 +17,6 @@ export default function CompaniesPage() {
   const [sortDirection, setSortDirection] = useState("asc"); // "asc" or "desc"
   const [showAddCompany, setShowAddCompany] = useState(false);
   const [newCompanyName, setNewCompanyName] = useState("");
-  const [editingBankDetails, setEditingBankDetails] = useState(null);
-  const [bankDetailsText, setBankDetailsText] = useState("");
   
   const queryClient = useQueryClient();
 
@@ -59,6 +58,10 @@ export default function CompaniesPage() {
           case "totalDue":
             aValue = a.totalDue || 0;
             bValue = b.totalDue || 0;
+            break;
+          case "createdAt":
+            aValue = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            bValue = b.createdAt ? new Date(b.createdAt).getTime() : 0;
             break;
           default:
             return 0;
@@ -138,15 +141,6 @@ export default function CompaniesPage() {
     setNewCreditBalance("");
   };
 
-  const handleEditBankDetails = (balance) => {
-    setEditingBankDetails(balance);
-    setBankDetailsText(balance.bankDetails || "");
-  };
-
-  const handleCloseBankDetailsModal = () => {
-    setEditingBankDetails(null);
-    setBankDetailsText("");
-  };
 
   const updateCreditMutation = useMutation({
     mutationFn: ({ companyName, newBalance }) => setCompanyCredit(companyName, parseFloat(newBalance) || 0),
@@ -166,24 +160,6 @@ export default function CompaniesPage() {
     },
   });
 
-  const updateBankDetailsMutation = useMutation({
-    mutationFn: ({ companyName, bankDetails }) => updateCompanyBankDetails(companyName, bankDetails),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["companies"] });
-      queryClient.invalidateQueries({ queryKey: ["company-balances"] });
-      handleCloseBankDetailsModal();
-    },
-  });
-
-  const handleUpdateBankDetails = (e) => {
-    e.preventDefault();
-    if (!editingBankDetails) return;
-    
-    updateBankDetailsMutation.mutate({
-      companyName: editingBankDetails.companyName,
-      bankDetails: bankDetailsText,
-    });
-  };
 
   const handleCreateCompany = (e) => {
     e.preventDefault();
@@ -302,6 +278,15 @@ export default function CompaniesPage() {
                         {getSortIcon("totalDue")}
                       </div>
                     </th>
+                    <th 
+                      className="px-2 py-1.5 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleSort("createdAt")}
+                    >
+                      <div className="flex items-center">
+                        Created At
+                        {getSortIcon("createdAt")}
+                      </div>
+                    </th>
                     <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-500 uppercase">
                       Actions
                     </th>
@@ -332,6 +317,9 @@ export default function CompaniesPage() {
                             })}
                           </span>
                         </td>
+                        <td className="px-2 py-1.5 whitespace-nowrap text-xs text-gray-600">
+                          {balance.createdAt ? formatDate(balance.createdAt) : "-"}
+                        </td>
                         <td className="px-2 py-1.5 whitespace-nowrap text-center">
                           <div className="flex items-center justify-center gap-2">
                             <button
@@ -340,13 +328,6 @@ export default function CompaniesPage() {
                               title="Update Credit Balance"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => handleEditBankDetails(balance)}
-                              className="text-green-600 hover:text-green-800"
-                              title="Edit Bank Details"
-                            >
-                              <Building2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </td>
@@ -523,68 +504,6 @@ export default function CompaniesPage() {
         </div>
       )}
 
-      {/* Edit Bank Details Modal */}
-      {editingBankDetails && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-gray-800">
-                Edit Bank Details
-              </h3>
-              <button
-                onClick={handleCloseBankDetailsModal}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="mb-4">
-              <p className="text-sm text-gray-600 mb-2">
-                Company: <span className="font-semibold">{editingBankDetails.companyName}</span>
-              </p>
-              <p className="text-xs text-gray-500 mb-4">
-                Bank details will be displayed on invoices for this company. You can use line breaks to format the information.
-              </p>
-            </div>
-
-            <form onSubmit={handleUpdateBankDetails} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Bank Details
-                </label>
-                <textarea
-                  value={bankDetailsText}
-                  onChange={(e) => setBankDetailsText(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
-                  placeholder="TITLE: NAFAY MOTORS (PTY) LTD&#10;AC #: FNB-62689998452&#10;BRANCH: BEACH BRANCH&#10;CODE: 220126&#10;EMAIL: nafaymotors@gmail.com"
-                  rows={8}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Press Enter to create line breaks. This will be displayed on invoices.
-                </p>
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="submit"
-                  disabled={updateBankDetailsMutation.isPending}
-                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                >
-                  {updateBankDetailsMutation.isPending ? "Saving..." : "Save Bank Details"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCloseBankDetailsModal}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
