@@ -8,10 +8,12 @@ const TruckSchema = new mongoose.Schema({
     uppercase: true,
   },
   // Drivers assigned to this truck (array to support multiple drivers)
-  drivers: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Driver",
-  }],
+  drivers: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Driver",
+    },
+  ],
   // Truck/Vehicle number or identifier
   number: {
     type: String,
@@ -37,29 +39,36 @@ const TruckSchema = new mongoose.Schema({
   lastMaintenanceDate: {
     type: Date,
   },
+  // Maintenance warning message (e.g., "Maintenance overdue" or "Maintenance due soon")
+  maintenanceWarning: {
+    type: String,
+    trim: true,
+  },
   // Maintenance history (array of maintenance records)
-  maintenanceHistory: [{
-    date: {
-      type: Date,
-      default: Date.now,
+  maintenanceHistory: [
+    {
+      date: {
+        type: Date,
+        default: Date.now,
+      },
+      kmReading: {
+        type: Number,
+        required: true,
+      },
+      details: {
+        type: String,
+        trim: true,
+      },
+      cost: {
+        type: Number,
+        min: 0,
+      },
+      createdAt: {
+        type: Date,
+        default: Date.now,
+      },
     },
-    kmReading: {
-      type: Number,
-      required: true,
-    },
-    details: {
-      type: String,
-      trim: true,
-    },
-    cost: {
-      type: Number,
-      min: 0,
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
-  }],
+  ],
   // User who created this truck
   userId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -93,9 +102,11 @@ TruckSchema.pre("save", function () {
 });
 
 // Create compound unique index for name + userId to ensure uniqueness per user
-TruckSchema.index({ name: 1, userId: 1 }, { 
-  unique: true, 
-});
+TruckSchema.index(
+  { name: 1, userId: 1 },
+  {
+    unique: true,
+  },
+);
 
-export default mongoose.models.Truck ||
-  mongoose.model("Truck", TruckSchema);
+export default mongoose.models.Truck || mongoose.model("Truck", TruckSchema);

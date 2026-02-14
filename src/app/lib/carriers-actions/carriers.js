@@ -7,6 +7,7 @@ import Carrier from "@/app/lib/models/Carrier";
 import Car from "@/app/lib/models/Car";
 import Expense from "@/app/lib/models/Expense";
 import Driver from "@/app/lib/models/Driver";
+import Truck from "@/app/lib/models/Truck";
 import { getSession } from "@/app/lib/auth/getSession";
 
 export async function getAllCarriers(searchParams = {}) {
@@ -18,84 +19,121 @@ export async function getAllCarriers(searchParams = {}) {
 
     const session = await getSession();
     if (!session) {
-      return { carriers: [], pagination: { page: 1, limit: 10, total: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false } };
+      return {
+        carriers: [],
+        pagination: {
+          page: 1,
+          limit: 10,
+          total: 0,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPrevPage: false,
+        },
+      };
     }
 
     // Build carrier match conditions
     const carrierMatchConditions = [];
-    
+
     // Filter by userId - super admin can filter by any user via searchParams, others use their own userId
     if (searchParams.userId && session.role === "super_admin") {
       // Super admin filtering by specific user
       if (mongoose.Types.ObjectId.isValid(searchParams.userId)) {
-        carrierMatchConditions.push({ userId: new mongoose.Types.ObjectId(searchParams.userId) });
+        carrierMatchConditions.push({
+          userId: new mongoose.Types.ObjectId(searchParams.userId),
+        });
       }
     } else if (session.role !== "super_admin" && session.userId) {
       // Regular users see only their own carriers
       if (mongoose.Types.ObjectId.isValid(session.userId)) {
-        carrierMatchConditions.push({ userId: new mongoose.Types.ObjectId(session.userId) });
+        carrierMatchConditions.push({
+          userId: new mongoose.Types.ObjectId(session.userId),
+        });
       }
     }
-    
+
     // Filter by carrier type
     if (searchParams.type) {
       carrierMatchConditions.push({ type: searchParams.type });
     }
-    
+
     // Filter by active/inactive status
     if (searchParams.isActive !== undefined && searchParams.isActive !== "") {
-      const isActiveValue = searchParams.isActive === "true" || searchParams.isActive === true;
+      const isActiveValue =
+        searchParams.isActive === "true" || searchParams.isActive === true;
       if (isActiveValue) {
         carrierMatchConditions.push({
           $or: [
             { isActive: true },
             { isActive: { $exists: false } },
-            { isActive: null }
-          ]
+            { isActive: null },
+          ],
         });
       } else {
         carrierMatchConditions.push({ isActive: false });
       }
     }
-    
+
     // Filter by carrier name
     if (searchParams.carrierName) {
-      const carrierNameFilter = decodeURIComponent(searchParams.carrierName).trim();
+      const carrierNameFilter = decodeURIComponent(
+        searchParams.carrierName,
+      ).trim();
       if (carrierNameFilter) {
-        const escapedCarrierName = carrierNameFilter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        carrierMatchConditions.push({ carrierName: { $regex: escapedCarrierName, $options: "i" } });
+        const escapedCarrierName = carrierNameFilter.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&",
+        );
+        carrierMatchConditions.push({
+          carrierName: { $regex: escapedCarrierName, $options: "i" },
+        });
       }
     }
-    
+
     // Filter by trip number (supports comma-separated values)
     if (searchParams.tripNumber) {
-      const tripNumberFilter = decodeURIComponent(searchParams.tripNumber).trim();
+      const tripNumberFilter = decodeURIComponent(
+        searchParams.tripNumber,
+      ).trim();
       if (tripNumberFilter) {
         // Split by comma and trim each trip number
-        const tripNumbers = tripNumberFilter.split(',').map(tn => tn.trim()).filter(tn => tn);
+        const tripNumbers = tripNumberFilter
+          .split(",")
+          .map((tn) => tn.trim())
+          .filter((tn) => tn);
         if (tripNumbers.length > 0) {
           // Use regex for single trip number, $or for multiple
           if (tripNumbers.length === 1) {
-            const escapedTripNumber = tripNumbers[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            carrierMatchConditions.push({ tripNumber: { $regex: escapedTripNumber, $options: "i" } });
+            const escapedTripNumber = tripNumbers[0].replace(
+              /[.*+?^${}()|[\]\\]/g,
+              "\\$&",
+            );
+            carrierMatchConditions.push({
+              tripNumber: { $regex: escapedTripNumber, $options: "i" },
+            });
           } else {
             // For multiple trip numbers, use $or with regex for each
             carrierMatchConditions.push({
-              $or: tripNumbers.map(tn => {
-                const escaped = tn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              $or: tripNumbers.map((tn) => {
+                const escaped = tn.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
                 return { tripNumber: { $regex: escaped, $options: "i" } };
-              })
+              }),
             });
           }
         }
       }
     }
-    
+
     // Global search across multiple fields
     if (searchParams.globalSearch) {
-      const globalSearchTerm = decodeURIComponent(searchParams.globalSearch).trim();
+      const globalSearchTerm = decodeURIComponent(
+        searchParams.globalSearch,
+      ).trim();
       if (globalSearchTerm) {
-        const escapedSearch = globalSearchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const escapedSearch = globalSearchTerm.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&",
+        );
         const searchRegex = { $regex: escapedSearch, $options: "i" };
         carrierMatchConditions.push({
           $or: [
@@ -103,12 +141,12 @@ export async function getAllCarriers(searchParams = {}) {
             { carrierName: searchRegex },
             { driverName: searchRegex },
             { details: searchRegex },
-            { notes: searchRegex }
-          ]
+            { notes: searchRegex },
+          ],
         });
       }
     }
-    
+
     // Date filter for carriers
     if (searchParams.startDate && searchParams.endDate) {
       const startDate = new Date(searchParams.startDate);
@@ -120,15 +158,20 @@ export async function getAllCarriers(searchParams = {}) {
 
     // Build car lookup match conditions
     const carLookupMatchConditions = [
-      { $expr: { $eq: ["$carrier", "$$carrierId"] } }
+      { $expr: { $eq: ["$carrier", "$$carrierId"] } },
     ];
-    
+
     // Company filter for cars
     if (searchParams.company) {
       let companyFilter = decodeURIComponent(searchParams.company);
-      companyFilter = companyFilter.replace(/\+/g, ' ').trim();
-      const escapedCompany = companyFilter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      carLookupMatchConditions.push({ companyName: { $regex: `^${escapedCompany}$`, $options: "i" } });
+      companyFilter = companyFilter.replace(/\+/g, " ").trim();
+      const escapedCompany = companyFilter.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&",
+      );
+      carLookupMatchConditions.push({
+        companyName: { $regex: `^${escapedCompany}$`, $options: "i" },
+      });
     }
 
     // Date filter for cars
@@ -149,18 +192,20 @@ export async function getAllCarriers(searchParams = {}) {
       }
     }
 
-    const carLookupMatch = carLookupMatchConditions.length === 1 
-      ? carLookupMatchConditions[0]
-      : { $and: carLookupMatchConditions };
-    
+    const carLookupMatch =
+      carLookupMatchConditions.length === 1
+        ? carLookupMatchConditions[0]
+        : { $and: carLookupMatchConditions };
+
     const hasCarFilters = carLookupMatchConditions.length > 1; // More than just the carrier match
 
     // Build carrier match stage
-    const carrierMatch = carrierMatchConditions.length === 0
-      ? {}
-      : carrierMatchConditions.length === 1
-      ? carrierMatchConditions[0]
-      : { $and: carrierMatchConditions };
+    const carrierMatch =
+      carrierMatchConditions.length === 0
+        ? {}
+        : carrierMatchConditions.length === 1
+          ? carrierMatchConditions[0]
+          : { $and: carrierMatchConditions };
 
     // Single aggregation pipeline using $facet to get both results and count in one query
     const [result] = await Carrier.aggregate([
@@ -185,7 +230,9 @@ export async function getAllCarriers(searchParams = {}) {
         $addFields: {
           carCount: { $size: "$cars" },
           totalAmount: { $sum: "$cars.amount" },
-          profit: { $subtract: ["$totalAmount", { $ifNull: ["$totalExpense", 0] }] },
+          profit: {
+            $subtract: ["$totalAmount", { $ifNull: ["$totalExpense", 0] }],
+          },
           user: { $arrayElemAt: ["$user", 0] },
         },
       },
@@ -274,7 +321,12 @@ export async function getAllCarriers(searchParams = {}) {
                 totalCars: { $ifNull: ["$totalCars", 0] },
                 totalAmount: { $ifNull: ["$totalAmount", 0] },
                 totalExpenses: { $ifNull: ["$totalExpenses", 0] },
-                totalProfit: { $subtract: ["$totalAmount", { $ifNull: ["$totalExpenses", 0] }] },
+                totalProfit: {
+                  $subtract: [
+                    "$totalAmount",
+                    { $ifNull: ["$totalExpenses", 0] },
+                  ],
+                },
                 totalTrips: { $ifNull: ["$totalTrips", 0] },
               },
             },
@@ -350,12 +402,12 @@ export async function getCarrierById(carrierId) {
 
     const session = await getSession();
     const carQuery = { carrier: carrierId };
-    
+
     // Filter by location if user is not super admin
     if (session && session.role !== "super_admin" && session.location) {
       carQuery.location = session.location;
     }
-    
+
     const cars = await Car.find(carQuery)
       .populate("carrier", "tripNumber name type date totalExpense")
       .sort({ date: 1 })
@@ -401,14 +453,17 @@ export async function getTripByTripNumber(tripNumber) {
     }
 
     const carQuery = { carrier: carrier._id };
-    
+
     // Filter by location if user is not super admin
     if (session && session.role !== "super_admin" && session.location) {
       carQuery.location = session.location;
     }
-    
+
     const cars = await Car.find(carQuery)
-      .populate("carrier", "tripNumber name type date totalExpense carrierName driverName details notes")
+      .populate(
+        "carrier",
+        "tripNumber name type date totalExpense carrierName driverName details notes",
+      )
       .sort({ date: 1 })
       .lean();
 
@@ -499,13 +554,14 @@ export async function createCarrier(formData) {
     const driverName = formData.get("driverName")?.trim() || "";
     const details = formData.get("details")?.trim() || "";
     const notes = formData.get("notes")?.trim() || "";
-    
+
     // Super admin can select userId, regular users use their own
     const selectedUserId = formData.get("userId");
-    let targetUserId = (session.role === "super_admin" && selectedUserId) 
-      ? selectedUserId 
-      : session.userId;
-    
+    let targetUserId =
+      session.role === "super_admin" && selectedUserId
+        ? selectedUserId
+        : session.userId;
+
     // Convert userId to ObjectId if it's a valid string
     if (mongoose.Types.ObjectId.isValid(targetUserId)) {
       targetUserId = new mongoose.Types.ObjectId(targetUserId);
@@ -524,17 +580,16 @@ export async function createCarrier(formData) {
       return { error: "Trip number is required for trip-type carriers" };
     }
 
-
     // Check if trip number already exists (for the target user) - enforce uniqueness
     if (type === "trip" && tripNumber) {
-      const existingCarrier = await Carrier.findOne({ 
-        tripNumber: tripNumber.trim().toUpperCase(), 
-        type: "trip", 
-        userId: targetUserId 
+      const existingCarrier = await Carrier.findOne({
+        tripNumber: tripNumber.trim().toUpperCase(),
+        type: "trip",
+        userId: targetUserId,
       });
       if (existingCarrier) {
-        return { 
-          error: `Trip number "${tripNumber}" already exists for this user. Please use a different trip number.` 
+        return {
+          error: `Trip number "${tripNumber}" already exists for this user. Please use a different trip number.`,
         };
       }
     }
@@ -542,14 +597,14 @@ export async function createCarrier(formData) {
     // Check if company name already exists
     if (type === "company" && name) {
       const upperName = name.trim().toUpperCase();
-      const existingCarrier = await Carrier.findOne({ 
-        name: upperName, 
-        type: "company", 
-        userId: targetUserId 
+      const existingCarrier = await Carrier.findOne({
+        name: upperName,
+        type: "company",
+        userId: targetUserId,
       });
       if (existingCarrier) {
-        return { 
-          error: `Company name "${upperName}" already exists for this user. Please use a different name.` 
+        return {
+          error: `Company name "${upperName}" already exists for this user. Please use a different name.`,
         };
       }
     }
@@ -567,7 +622,10 @@ export async function createCarrier(formData) {
           return { error: "Selected truck not found" };
         }
         // Check permissions - user must own the truck or be super admin
-        if (session.role !== "super_admin" && truck.userId.toString() !== targetUserId.toString()) {
+        if (
+          session.role !== "super_admin" &&
+          truck.userId.toString() !== targetUserId.toString()
+        ) {
           return { error: "Selected truck does not belong to this user" };
         }
       } else {
@@ -586,7 +644,10 @@ export async function createCarrier(formData) {
       truck: truckObjectId,
       distance: tripDistance > 0 ? tripDistance : undefined,
       // Capture truck's current meter reading at the time of trip creation
-      meterReadingAtTrip: truck && truck.currentMeterReading ? truck.currentMeterReading : undefined,
+      meterReadingAtTrip:
+        truck && truck.currentMeterReading
+          ? truck.currentMeterReading
+          : undefined,
       // Legacy fields for backward compatibility
       carrierName: carrierName || "",
       driverName: driverName || "",
@@ -597,56 +658,65 @@ export async function createCarrier(formData) {
 
     try {
       await carrier.save();
-      
+
       // Update truck meter if trip distance is provided
       if (truck && tripDistance > 0) {
         const Truck = (await import("@/app/lib/models/Truck")).default;
         const updatedTruck = await Truck.findByIdAndUpdate(
           truck._id,
           {
-            $inc: { 
-              currentMeterReading: tripDistance
-            }
+            $inc: {
+              currentMeterReading: tripDistance,
+            },
           },
-          { new: true }
+          { new: true },
         );
-        
+
         // Check if maintenance is needed and store warning if exceeded
-        const nextMaintenanceKm = (updatedTruck.lastMaintenanceKm || 0) + (updatedTruck.maintenanceInterval || 1000);
+        const nextMaintenanceKm =
+          (updatedTruck.lastMaintenanceKm || 0) +
+          (updatedTruck.maintenanceInterval || 1000);
         const newKm = updatedTruck.currentMeterReading;
         const kmsRemaining = nextMaintenanceKm - newKm;
-        
+
         if (kmsRemaining <= 0) {
           // Maintenance overdue - store this info
           await Truck.findByIdAndUpdate(truck._id, {
             $set: {
-              maintenanceWarning: `Maintenance overdue! Current: ${newKm}km, Next required: ${nextMaintenanceKm}km`
-            }
+              maintenanceWarning: `Maintenance overdue! Current: ${newKm}km, Next required: ${nextMaintenanceKm}km`,
+            },
           });
-          console.warn(`Truck ${truck.name} maintenance is overdue! Current: ${newKm}km, Last maintenance: ${updatedTruck.lastMaintenanceKm}km`);
+          console.warn(
+            `Truck ${truck.name} maintenance is overdue! Current: ${newKm}km, Last maintenance: ${updatedTruck.lastMaintenanceKm}km`,
+          );
         } else if (kmsRemaining <= 500) {
           // Maintenance due soon
           await Truck.findByIdAndUpdate(truck._id, {
             $set: {
-              maintenanceWarning: `Maintenance due soon! ${kmsRemaining}km remaining until ${nextMaintenanceKm}km`
-            }
+              maintenanceWarning: `Maintenance due soon! ${kmsRemaining}km remaining until ${nextMaintenanceKm}km`,
+            },
           });
-          console.warn(`Truck ${truck.name} maintenance due soon! ${kmsRemaining}km remaining`);
+          console.warn(
+            `Truck ${truck.name} maintenance due soon! ${kmsRemaining}km remaining`,
+          );
         } else {
           // Clear warning if all good
           await Truck.findByIdAndUpdate(truck._id, {
-            $unset: { maintenanceWarning: "" }
+            $unset: { maintenanceWarning: "" },
           });
         }
       }
-      
+
       revalidatePath("/carrier-trips");
       revalidatePath("/carriers");
 
       return {
         success: true,
         carrier: JSON.parse(JSON.stringify(carrier)),
-        message: type === "trip" ? "Carrier trip created successfully" : "Company created successfully",
+        message:
+          type === "trip"
+            ? "Carrier trip created successfully"
+            : "Company created successfully",
       };
     } catch (saveError) {
       // Handle duplicate key error (E11000) - database might still have unique index
@@ -654,19 +724,33 @@ export async function createCarrier(formData) {
         // Try to find the existing carrier
         let foundCarrier;
         if (type === "trip") {
-          foundCarrier = await Carrier.findOne({ tripNumber, type: "trip", userId: targetUserId });
+          foundCarrier = await Carrier.findOne({
+            tripNumber,
+            type: "trip",
+            userId: targetUserId,
+          });
         } else {
           const upperName = name.trim().toUpperCase();
-          foundCarrier = await Carrier.findOne({ name: upperName, type: "company", userId: targetUserId });
+          foundCarrier = await Carrier.findOne({
+            name: upperName,
+            type: "company",
+            userId: targetUserId,
+          });
         }
-        
+
         if (foundCarrier) {
           revalidatePath("/carrier-trips");
           return {
             success: true,
             carrier: JSON.parse(JSON.stringify(foundCarrier)),
-            message: type === "trip" ? "Carrier trip already exists" : "Company already exists",
-            warning: type === "trip" ? "Trip number already exists - using existing trip" : "Company name already exists - using existing company",
+            message:
+              type === "trip"
+                ? "Carrier trip already exists"
+                : "Company already exists",
+            warning:
+              type === "trip"
+                ? "Trip number already exists - using existing trip"
+                : "Company name already exists - using existing company",
           };
         }
       }
@@ -679,7 +763,10 @@ export async function createCarrier(formData) {
       const errorType = formData.get("type") || "trip";
       return {
         success: true,
-        warning: errorType === "trip" ? "Trip number already exists" : "Company name already exists",
+        warning:
+          errorType === "trip"
+            ? "Trip number already exists"
+            : "Company name already exists",
         message: "Carrier may already exist. Please check the list.",
       };
     }
@@ -703,7 +790,7 @@ export async function updateCarrierExpense(carrierId, formData) {
     const details = formData.get("details")?.trim() || "";
     const notes = formData.get("notes")?.trim() || "";
     const tripNumber = formData.get("tripNumber")?.trim();
-    
+
     // Get carrier first to check permissions and type
     const carrier = await Carrier.findById(carrierId);
     if (!carrier) {
@@ -711,20 +798,26 @@ export async function updateCarrierExpense(carrierId, formData) {
     }
 
     // Check if user has permission to update this carrier
-    if (session.role !== "super_admin" && carrier.userId.toString() !== session.userId) {
+    if (
+      session.role !== "super_admin" &&
+      carrier.userId.toString() !== session.userId
+    ) {
       return { error: "Unauthorized" };
     }
 
     // Calculate totalExpense from individual expenses
     const expenses = await Expense.find({ carrier: carrierId });
-    const totalExpense = expenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
+    const totalExpense = expenses.reduce(
+      (sum, exp) => sum + (exp.amount || 0),
+      0,
+    );
 
     // Validate truck if provided
     let truckObjectId = null;
     let truck = null;
     const oldTruckId = carrier.truck?.toString() || carrier.truck || null;
     const oldDistance = carrier.distance || 0;
-    
+
     // Only update truck if a new truck ID is provided (not empty string)
     if (truckId && truckId.trim() !== "") {
       if (mongoose.Types.ObjectId.isValid(truckId)) {
@@ -736,7 +829,10 @@ export async function updateCarrierExpense(carrierId, formData) {
           return { error: "Selected truck not found" };
         }
         // Check permissions - user must own the truck or be super admin
-        if (session.role !== "super_admin" && truck.userId.toString() !== carrier.userId.toString()) {
+        if (
+          session.role !== "super_admin" &&
+          truck.userId.toString() !== carrier.userId.toString()
+        ) {
           return { error: "Selected truck does not belong to this user" };
         }
       } else {
@@ -756,18 +852,20 @@ export async function updateCarrierExpense(carrierId, formData) {
       // Only update truck if a new one was provided
       ...(truckObjectId ? { truck: truckObjectId } : {}),
       // Always update distance if provided (even if 0, to allow clearing it)
-      ...(tripDistance !== undefined && tripDistance !== null ? { distance: tripDistance } : {}),
+      ...(tripDistance !== undefined && tripDistance !== null
+        ? { distance: tripDistance }
+        : {}),
       // Legacy fields for backward compatibility
       carrierName,
       driverName,
       details,
       notes,
     };
-    
+
     // Update trip number if provided and it's a trip-type carrier
     if (carrier.type === "trip" && tripNumber) {
       const newTripNumber = tripNumber.trim().toUpperCase();
-      
+
       // Check if the new trip number is different from current
       if (newTripNumber !== carrier.tripNumber) {
         // Check if new trip number already exists (for the same user)
@@ -775,23 +873,26 @@ export async function updateCarrierExpense(carrierId, formData) {
           tripNumber: newTripNumber,
           type: "trip",
           userId: carrier.userId,
-          _id: { $ne: carrierId } // Exclude current carrier
+          _id: { $ne: carrierId }, // Exclude current carrier
         });
-        
+
         if (existingCarrier) {
           return {
-            error: `Trip number "${newTripNumber}" already exists. Please use a different trip number.`
+            error: `Trip number "${newTripNumber}" already exists. Please use a different trip number.`,
           };
         }
-        
+
         updateData.tripNumber = newTripNumber;
       }
     }
-    
+
     // Update meterReadingAtTrip if:
     // 1. It's not set and truck is assigned, OR
     // 2. Truck has changed (new truck assigned)
-    const truckChanged = oldTruckId && truckObjectId && oldTruckId.toString() !== truckObjectId.toString();
+    const truckChanged =
+      oldTruckId &&
+      truckObjectId &&
+      oldTruckId.toString() !== truckObjectId.toString();
     if (truck && truck.currentMeterReading) {
       if (!carrier.meterReadingAtTrip || truckChanged) {
         updateData.meterReadingAtTrip = truck.currentMeterReading;
@@ -801,7 +902,7 @@ export async function updateCarrierExpense(carrierId, formData) {
     const updatedCarrier = await Carrier.findByIdAndUpdate(
       carrierId,
       { $set: updateData },
-      { new: true }
+      { new: true },
     ).lean();
 
     if (!updatedCarrier) {
@@ -812,47 +913,53 @@ export async function updateCarrierExpense(carrierId, formData) {
     // Need to handle the difference between old and new distance
     if (truck && tripDistance !== undefined && tripDistance !== null) {
       const Truck = (await import("@/app/lib/models/Truck")).default;
-      
+
       // Calculate the difference: new distance - old distance
       const distanceDifference = tripDistance - oldDistance;
-      
+
       // Only update if there's a change in distance
       if (distanceDifference !== 0) {
         const updatedTruck = await Truck.findByIdAndUpdate(
           truck._id,
           {
-            $inc: { 
-              currentMeterReading: distanceDifference
-            }
+            $inc: {
+              currentMeterReading: distanceDifference,
+            },
           },
-          { new: true }
+          { new: true },
         );
-        
+
         // Check if maintenance is needed and store warning if exceeded
-        const nextMaintenanceKm = (updatedTruck.lastMaintenanceKm || 0) + (updatedTruck.maintenanceInterval || 1000);
+        const nextMaintenanceKm =
+          (updatedTruck.lastMaintenanceKm || 0) +
+          (updatedTruck.maintenanceInterval || 1000);
         const newKm = updatedTruck.currentMeterReading;
         const kmsRemaining = nextMaintenanceKm - newKm;
-        
+
         if (kmsRemaining <= 0) {
           // Maintenance overdue - store this info
           await Truck.findByIdAndUpdate(truck._id, {
             $set: {
-              maintenanceWarning: `Maintenance overdue! Current: ${newKm}km, Next required: ${nextMaintenanceKm}km`
-            }
+              maintenanceWarning: `Maintenance overdue! Current: ${newKm}km, Next required: ${nextMaintenanceKm}km`,
+            },
           });
-          console.warn(`Truck ${truck.name} maintenance is overdue! Current: ${newKm}km, Last maintenance: ${updatedTruck.lastMaintenanceKm}km`);
+          console.warn(
+            `Truck ${truck.name} maintenance is overdue! Current: ${newKm}km, Last maintenance: ${updatedTruck.lastMaintenanceKm}km`,
+          );
         } else if (kmsRemaining <= 500) {
           // Maintenance due soon
           await Truck.findByIdAndUpdate(truck._id, {
             $set: {
-              maintenanceWarning: `Maintenance due soon! ${kmsRemaining}km remaining until ${nextMaintenanceKm}km`
-            }
+              maintenanceWarning: `Maintenance due soon! ${kmsRemaining}km remaining until ${nextMaintenanceKm}km`,
+            },
           });
-          console.warn(`Truck ${truck.name} maintenance due soon! ${kmsRemaining}km remaining`);
+          console.warn(
+            `Truck ${truck.name} maintenance due soon! ${kmsRemaining}km remaining`,
+          );
         } else {
           // Clear warning if all good
           await Truck.findByIdAndUpdate(truck._id, {
-            $unset: { maintenanceWarning: "" }
+            $unset: { maintenanceWarning: "" },
           });
         }
       }
@@ -881,7 +988,10 @@ export async function toggleCarrierActiveStatus(carrierId) {
 
     // Convert carrierId to ObjectId if it's a string
     let carrierIdObj = carrierId;
-    if (typeof carrierId === 'string' && mongoose.Types.ObjectId.isValid(carrierId)) {
+    if (
+      typeof carrierId === "string" &&
+      mongoose.Types.ObjectId.isValid(carrierId)
+    ) {
       carrierIdObj = new mongoose.Types.ObjectId(carrierId);
     }
 
@@ -893,7 +1003,7 @@ export async function toggleCarrierActiveStatus(carrierId) {
     // Check if user has permission (must be owner or super admin)
     const carrierUserId = carrier.userId?.toString();
     const sessionUserId = session.userId?.toString();
-    
+
     if (session.role !== "super_admin" && carrierUserId !== sessionUserId) {
       return { error: "Unauthorized to modify this carrier" };
     }
@@ -902,14 +1012,16 @@ export async function toggleCarrierActiveStatus(carrierId) {
     // Handle undefined/null as active (true) for backward compatibility
     const currentStatus = carrier.isActive !== false; // true if undefined/null/true
     carrier.isActive = !currentStatus; // Toggle to opposite
-    
+
     await carrier.save();
 
     revalidatePath("/carriers");
     return {
       success: true,
       carrier: JSON.parse(JSON.stringify(carrier)),
-      message: carrier.isActive ? "Trip marked as active" : "Trip marked as inactive",
+      message: carrier.isActive
+        ? "Trip marked as active"
+        : "Trip marked as inactive",
     };
   } catch (error) {
     return { error: `Failed to update trip status: ${error.message}` };
@@ -931,27 +1043,209 @@ export async function deleteCarrier(carrierId) {
 
     // Convert carrierId to ObjectId if it's a string
     let carrierIdObj = carrierId;
-    if (typeof carrierId === 'string' && mongoose.Types.ObjectId.isValid(carrierId)) {
+    if (
+      typeof carrierId === "string" &&
+      mongoose.Types.ObjectId.isValid(carrierId)
+    ) {
       carrierIdObj = new mongoose.Types.ObjectId(carrierId);
     }
 
-    // Find the carrier first to verify it exists
-    const carrier = await Carrier.findById(carrierIdObj);
+    // Find the carrier first to verify it exists and get truck info
+    const carrier = await Carrier.findById(carrierIdObj).populate("truck");
     if (!carrier) {
       return { error: "Carrier trip not found" };
     }
 
+    // Detailed deletion report
+    const deletionReport = {
+      tripNumber: carrier.tripNumber || carrier.name || "Unknown",
+      itemsDeleted: {
+        cars: 0,
+        expenses: 0,
+        fuelExpenses: 0,
+        driverRentExpenses: 0,
+        otherExpenses: 0,
+        totalExpenseAmount: 0,
+      },
+      truckUpdated: null,
+      details: [],
+    };
+
+    // If this carrier has a truck associated with it, update truck's meter reading
+    if (carrier.truck && carrier.distance) {
+      const truck = await Truck.findById(carrier.truck._id);
+      if (truck) {
+        const originalReading = truck.currentMeterReading;
+        // Revert the meter reading by subtracting the distance traveled in this trip
+        const newMeterReading = Math.max(
+          0,
+          truck.currentMeterReading - carrier.distance,
+        );
+
+        // Update truck's meter reading
+        truck.currentMeterReading = newMeterReading;
+
+        // Update maintenance warning based on new meter reading
+        const nextMaintenanceKm =
+          (truck.lastMaintenanceKm || 0) + (truck.maintenanceInterval || 1000);
+        const kmsRemaining = nextMaintenanceKm - newMeterReading;
+
+        if (kmsRemaining <= 0) {
+          // Maintenance overdue
+          truck.maintenanceWarning = `Maintenance overdue! Current: ${newMeterReading}km, Next required: ${nextMaintenanceKm}km`;
+        } else if (kmsRemaining <= 500) {
+          // Maintenance due soon
+          truck.maintenanceWarning = `Maintenance due soon! ${kmsRemaining}km remaining until ${nextMaintenanceKm}km`;
+        } else {
+          // Clear warning if all good
+          truck.maintenanceWarning = undefined;
+        }
+
+        await truck.save();
+
+        deletionReport.truckUpdated = {
+          truckName: truck.name,
+          originalMeterReading: originalReading,
+          newMeterReading: newMeterReading,
+          distanceRemoved: carrier.distance,
+          maintenanceStatus: truck.maintenanceWarning || "OK",
+        };
+        deletionReport.details.push(
+          `✓ Truck "${truck.name}" meter reading reverted from ${originalReading}km to ${newMeterReading}km (-${carrier.distance}km)`,
+        );
+      }
+    }
+
+    // Find all carrier expenses to identify synced truck/driver expenses
+    const carrierExpenses = await Expense.find({ carrier: carrierIdObj });
+
+    // Get all expense IDs for finding synced expenses
+    const carrierExpenseIds = carrierExpenses.map((exp) => exp._id);
+
+    // Track expenses by category
+    const expensesByCategory = {
+      fuel: [],
+      driver_rent: [],
+      other: [],
+    };
+
+    carrierExpenses.forEach((exp) => {
+      if (exp.category === "fuel") {
+        expensesByCategory.fuel.push(exp);
+      } else if (exp.category === "driver_rent") {
+        expensesByCategory.driver_rent.push(exp);
+      } else {
+        expensesByCategory.other.push(exp);
+      }
+    });
+
+    // Find all truck and driver expenses that were synced from these carrier expenses
+    let syncedExpenses = [];
+    if (carrierExpenseIds.length > 0) {
+      syncedExpenses = await Expense.find({
+        syncedFromExpense: { $in: carrierExpenseIds },
+      });
+    }
+
+    // Delete all synced expenses (truck and driver expenses)
+    if (syncedExpenses.length > 0) {
+      const syncedExpenseIds = syncedExpenses.map((exp) => exp._id);
+      await Expense.deleteMany({ _id: { $in: syncedExpenseIds } });
+
+      // Update deletion report
+      const fuelSyncedCount = syncedExpenses.filter(
+        (e) => e.category === "fuel",
+      ).length;
+      const rentSyncedCount = syncedExpenses.filter(
+        (e) => e.category === "driver_rent",
+      ).length;
+
+      if (fuelSyncedCount > 0) {
+        deletionReport.details.push(
+          `✓ Removed ${fuelSyncedCount} synced fuel expense(s) from trucks`,
+        );
+      }
+      if (rentSyncedCount > 0) {
+        deletionReport.details.push(
+          `✓ Removed ${rentSyncedCount} synced driver rent expense(s)`,
+        );
+      }
+    }
+
+    // Delete all carrier expenses (fuel, driver rent, etc.)
+    const deleteExpensesResult = await Expense.deleteMany({
+      carrier: carrierIdObj,
+    });
+
+    if (deleteExpensesResult.deletedCount > 0) {
+      deletionReport.itemsDeleted.expenses = deleteExpensesResult.deletedCount;
+      deletionReport.itemsDeleted.fuelExpenses = expensesByCategory.fuel.length;
+      deletionReport.itemsDeleted.driverRentExpenses =
+        expensesByCategory.driver_rent.length;
+      deletionReport.itemsDeleted.otherExpenses =
+        expensesByCategory.other.length;
+
+      // Calculate total expense amount
+      const totalAmount = carrierExpenses.reduce(
+        (sum, exp) => sum + (exp.amount || 0),
+        0,
+      );
+      deletionReport.itemsDeleted.totalExpenseAmount = totalAmount;
+
+      let expenseDetails = [];
+      if (expensesByCategory.fuel.length > 0) {
+        const fuelAmount = expensesByCategory.fuel.reduce(
+          (sum, exp) => sum + (exp.amount || 0),
+          0,
+        );
+        expenseDetails.push(
+          `${expensesByCategory.fuel.length} fuel expense(s) (R${fuelAmount.toFixed(2)})`,
+        );
+      }
+      if (expensesByCategory.driver_rent.length > 0) {
+        const rentAmount = expensesByCategory.driver_rent.reduce(
+          (sum, exp) => sum + (exp.amount || 0),
+          0,
+        );
+        expenseDetails.push(
+          `${expensesByCategory.driver_rent.length} driver rent(s) (R${rentAmount.toFixed(2)})`,
+        );
+      }
+      if (expensesByCategory.other.length > 0) {
+        const otherAmount = expensesByCategory.other.reduce(
+          (sum, exp) => sum + (exp.amount || 0),
+          0,
+        );
+        expenseDetails.push(
+          `${expensesByCategory.other.length} other expense(s) (R${otherAmount.toFixed(2)})`,
+        );
+      }
+
+      if (expenseDetails.length > 0) {
+        deletionReport.details.push(
+          `✓ Removed ${expenseDetails.join(", ")} - Total: R${totalAmount.toFixed(2)}`,
+        );
+      }
+    }
+
     // Delete all cars associated with this carrier
     const deleteCarsResult = await Car.deleteMany({ carrier: carrierIdObj });
-    
+    deletionReport.itemsDeleted.cars = deleteCarsResult.deletedCount;
+    if (deleteCarsResult.deletedCount > 0) {
+      deletionReport.details.push(
+        `✓ Removed ${deleteCarsResult.deletedCount} car(s) from trip`,
+      );
+    }
+
     // Delete the carrier
     await Carrier.findByIdAndDelete(carrierIdObj);
 
     revalidatePath("/carrier-trips");
+    revalidatePath("/carriers");
     return {
       success: true,
-      message: `Trip and ${deleteCarsResult.deletedCount} associated car(s) deleted successfully`,
-      deletedCarsCount: deleteCarsResult.deletedCount,
+      message: `Trip "${deletionReport.tripNumber}" and all associated items deleted successfully`,
+      deletionReport: deletionReport,
     };
   } catch (error) {
     console.error("Error deleting carrier:", error);
@@ -968,12 +1262,22 @@ export async function getFilteredCarriersWithCars(searchParams = {}) {
 
     const session = await getSession();
     if (!session) {
-      return { carriers: [], pagination: { page: 1, limit: 10, total: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false } };
+      return {
+        carriers: [],
+        pagination: {
+          page: 1,
+          limit: 10,
+          total: 0,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPrevPage: false,
+        },
+      };
     }
 
     // Build car filter query
     const carQuery = {};
-    
+
     // Filter by userId if user is not super admin
     if (session.role !== "super_admin" && session.userId) {
       // Convert userId string to ObjectId for proper querying in aggregation pipeline
@@ -983,10 +1287,13 @@ export async function getFilteredCarriersWithCars(searchParams = {}) {
         carQuery.userId = session.userId;
       }
     }
-    
+
     // Company filter - search by companyName (exact match only)
     if (searchParams.company) {
-      const escapedCompany = searchParams.company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const escapedCompany = searchParams.company.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&",
+      );
       carQuery.companyName = { $regex: `^${escapedCompany}$`, $options: "i" };
     }
 
@@ -1008,7 +1315,7 @@ export async function getFilteredCarriersWithCars(searchParams = {}) {
 
     // Find carriers that have cars matching the filters
     const matchingCars = await Car.find(carQuery).distinct("carrier");
-    
+
     if (matchingCars.length === 0) {
       return {
         carriers: [],

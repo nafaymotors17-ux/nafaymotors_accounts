@@ -2,14 +2,19 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Eye, Download, Trash2 } from "lucide-react";
+import { Eye, Download, Trash2, FileSpreadsheet } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
-import { deleteInvoice, recordPayment, deletePayment } from "@/app/lib/invoice-actions/invoices";
+import {
+  deleteInvoice,
+  recordPayment,
+  deletePayment,
+} from "@/app/lib/invoice-actions/invoices";
 import { getCarsByCompany } from "@/app/lib/carriers-actions/cars";
 import { getCompanyBalance } from "@/app/lib/invoice-actions/company-balances";
 import { useUser } from "@/app/components/UserContext";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import * as XLSX from "xlsx";
 import InvoiceFilters from "./InvoiceFilters";
 import InvoiceViewModal from "./InvoiceViewModal";
 import PaymentFormModal from "./PaymentFormModal";
@@ -35,18 +40,25 @@ export default function InvoicesTable({
   const queryClient = useQueryClient();
 
   // Derived value with useMemo
-  const isSuperAdmin = useMemo(() => user?.role === "super_admin", [user?.role]);
-  
+  const isSuperAdmin = useMemo(
+    () => user?.role === "super_admin",
+    [user?.role],
+  );
+
   // Check if user can delete invoice (super admin or invoice owner)
-  const canDeleteInvoice = useCallback((invoice) => {
-    if (isSuperAdmin) return true;
-    if (!user || !invoice) return false;
-    return invoice.userId?.toString() === user.userId?.toString();
-  }, [isSuperAdmin, user]);
+  const canDeleteInvoice = useCallback(
+    (invoice) => {
+      if (isSuperAdmin) return true;
+      if (!user || !invoice) return false;
+      return invoice.userId?.toString() === user.userId?.toString();
+    },
+    [isSuperAdmin, user],
+  );
 
   // UI state only
   const [viewingInvoice, setViewingInvoice] = useState(null);
   const [generatingPDF, setGeneratingPDF] = useState(false);
+  const [generatingExcel, setGeneratingExcel] = useState(false);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [selectedTrips, setSelectedTrips] = useState(null);
   const [paymentFormData, setPaymentFormData] = useState({
@@ -56,10 +68,7 @@ export default function InvoicesTable({
   });
 
   // Server data with React Query - fetch cars when viewing invoice
-  const {
-    data: invoiceCarsData,
-    isLoading: loadingCars,
-  } = useQuery({
+  const { data: invoiceCarsData, isLoading: loadingCars } = useQuery({
     queryKey: ["invoiceCars", viewingInvoice?._id],
     queryFn: () => {
       if (!viewingInvoice) return null;
@@ -74,24 +83,22 @@ export default function InvoicesTable({
   });
 
   // Fetch company balance when viewing invoice
-  const {
-    data: companyBalanceData,
-    isLoading: loadingCompanyBalance,
-  } = useQuery({
-    queryKey: ["companyBalance", viewingInvoice?.clientCompanyName],
-    queryFn: () => {
-      if (!viewingInvoice?.clientCompanyName) return null;
-      return getCompanyBalance(viewingInvoice.clientCompanyName);
-    },
-    enabled: !!viewingInvoice?.clientCompanyName,
-  });
+  const { data: companyBalanceData, isLoading: loadingCompanyBalance } =
+    useQuery({
+      queryKey: ["companyBalance", viewingInvoice?.clientCompanyName],
+      queryFn: () => {
+        if (!viewingInvoice?.clientCompanyName) return null;
+        return getCompanyBalance(viewingInvoice.clientCompanyName);
+      },
+      enabled: !!viewingInvoice?.clientCompanyName,
+    });
 
   // Derived value - filtered cars for the invoice
   const invoiceCars = useMemo(() => {
     if (!invoiceCarsData?.success || !viewingInvoice) return [];
     const invoiceCarIds = viewingInvoice.carIds.map((id) => id.toString());
     return (invoiceCarsData.cars || []).filter((car) =>
-      invoiceCarIds.includes(car._id.toString())
+      invoiceCarIds.includes(car._id.toString()),
     );
   }, [invoiceCarsData, viewingInvoice]);
 
@@ -105,7 +112,8 @@ export default function InvoicesTable({
   });
 
   const recordPaymentMutation = useMutation({
-    mutationFn: ({ invoiceId, paymentData }) => recordPayment(invoiceId, paymentData),
+    mutationFn: ({ invoiceId, paymentData }) =>
+      recordPayment(invoiceId, paymentData),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["companyBalance"] });
@@ -123,7 +131,8 @@ export default function InvoicesTable({
   });
 
   const deletePaymentMutation = useMutation({
-    mutationFn: ({ invoiceId, paymentId }) => deletePayment(invoiceId, paymentId),
+    mutationFn: ({ invoiceId, paymentId }) =>
+      deletePayment(invoiceId, paymentId),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["companyBalance"] });
@@ -159,14 +168,25 @@ export default function InvoicesTable({
   const getPaymentStatusBadge = useCallback((status, remainingBalance) => {
     const baseClasses = "px-2 py-1 text-xs font-medium rounded";
     if (status === "paid") {
-      return <span className={`${baseClasses} bg-green-100 text-green-800`}>Paid</span>;
+      return (
+        <span className={`${baseClasses} bg-green-100 text-green-800`}>
+          Paid
+        </span>
+      );
     } else if (status === "partial") {
-      return <span className={`${baseClasses} bg-yellow-100 text-yellow-800`}>Partial</span>;
+      return (
+        <span className={`${baseClasses} bg-yellow-100 text-yellow-800`}>
+          Partial
+        </span>
+      );
     } else {
-      return <span className={`${baseClasses} bg-gray-100 text-gray-800`}>Unpaid</span>;
+      return (
+        <span className={`${baseClasses} bg-gray-100 text-gray-800`}>
+          Unpaid
+        </span>
+      );
     }
   }, []);
-
 
   // Event handlers
   const handleClearFilters = useCallback(() => {
@@ -178,12 +198,12 @@ export default function InvoicesTable({
   const handleDeleteInvoice = useCallback(
     async (invoiceId, invoiceNumber) => {
       const confirmed = window.confirm(
-        `Are you sure you want to delete invoice ${invoiceNumber}? This action cannot be undone.`
+        `Are you sure you want to delete invoice ${invoiceNumber}? This action cannot be undone.`,
       );
       if (!confirmed) return;
       deleteInvoiceMutation.mutate(invoiceId);
     },
-    [deleteInvoiceMutation]
+    [deleteInvoiceMutation],
   );
 
   const handleViewInvoice = useCallback((invoice) => {
@@ -194,176 +214,179 @@ export default function InvoicesTable({
     setViewingInvoice(null);
   }, []);
 
-  const generatePDFFromInvoice = useCallback(async (invoice, cars) => {
-    if (!cars || cars.length === 0) return;
-    setGeneratingPDF(true);
-    try {
-      // Get sender (user) bank details from user context
-      const senderBankDetails = fullUserData?.bankDetails?.trim() || "";
+  const generatePDFFromInvoice = useCallback(
+    async (invoice, cars) => {
+      if (!cars || cars.length === 0) return;
+      setGeneratingPDF(true);
+      try {
+        // Get sender (user) bank details from user context
+        const senderBankDetails = fullUserData?.bankDetails?.trim() || "";
 
-      const doc = new jsPDF();
-      const margin = 14;
-      const pageWidth = doc.internal.pageSize.getWidth();
-      let currentY = 20;
+        const doc = new jsPDF();
+        const margin = 14;
+        const pageWidth = doc.internal.pageSize.getWidth();
+        let currentY = 20;
 
-      // Header - Sender Company
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(16);
-      doc.setTextColor(31, 41, 55);
-      doc.text(
-        invoice.senderCompanyName.toUpperCase() || "COMPANY NAME",
-        margin,
-        currentY
-      );
-      currentY += 6;
+        // Header - Sender Company
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(16);
+        doc.setTextColor(31, 41, 55);
+        doc.text(
+          invoice.senderCompanyName.toUpperCase() || "COMPANY NAME",
+          margin,
+          currentY,
+        );
+        currentY += 6;
 
-      if (invoice.senderAddress) {
+        if (invoice.senderAddress) {
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(10);
+          doc.setTextColor(100);
+          doc.text(invoice.senderAddress, margin, currentY);
+          currentY += 6;
+        }
+
+        // TAX INVOICE Title
+        currentY += 4;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(14);
+        doc.setTextColor(31, 41, 55);
+        doc.text("TAX INVOICE", pageWidth / 2, currentY, { align: "center" });
+        currentY += 6;
+
+        // Client Name
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(12);
+        doc.text(
+          invoice.clientCompanyName.toUpperCase(),
+          pageWidth / 2,
+          currentY,
+          { align: "center" },
+        );
+        currentY += 8;
+
+        // Invoice Number and Date
         doc.setFont("helvetica", "normal");
         doc.setFontSize(10);
         doc.setTextColor(100);
-        doc.text(invoice.senderAddress, margin, currentY);
-        currentY += 6;
-      }
+        const invoiceNoText = `INVOICE NO: ${invoice.invoiceNumber}`;
+        const invoiceDateText = `DATE: ${formatDate(invoice.invoiceDate).toUpperCase()}`;
+        doc.text(invoiceNoText, pageWidth - margin, currentY, {
+          align: "right",
+        });
+        currentY += 5;
+        doc.text(invoiceDateText, pageWidth - margin, currentY, {
+          align: "right",
+        });
+        currentY += 10;
 
-      // TAX INVOICE Title
-      currentY += 4;
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(14);
-      doc.setTextColor(31, 41, 55);
-      doc.text("TAX INVOICE", pageWidth / 2, currentY, { align: "center" });
-      currentY += 6;
-
-      // Client Name
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(12);
-      doc.text(
-        invoice.clientCompanyName.toUpperCase(),
-        pageWidth / 2,
-        currentY,
-        { align: "center" }
-      );
-      currentY += 8;
-
-      // Invoice Number and Date
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(10);
-      doc.setTextColor(100);
-      const invoiceNoText = `INVOICE NO: ${invoice.invoiceNumber}`;
-      const invoiceDateText = `DATE: ${formatDate(invoice.invoiceDate).toUpperCase()}`;
-      doc.text(invoiceNoText, pageWidth - margin, currentY, { align: "right" });
-      currentY += 5;
-      doc.text(invoiceDateText, pageWidth - margin, currentY, {
-        align: "right",
-      });
-      currentY += 10;
-
-      // Table data
-      const tableRows = cars.map((car, index) => [
-        index + 1,
-        formatDate(car.date),
-        car.stockNo || "",
-        car.companyName || invoice.clientCompanyName || "",
-        car.name || "",
-        car.chassis || "",
-        (car.amount || 0).toLocaleString("en-US", {
-          minimumFractionDigits: 2,
-        }),
-      ]);
-
-      // Add TOTAL row
-      tableRows.push([
-        {
-          content: "TOTAL",
-          colSpan: 6,
-          styles: { halign: "right", fontStyle: "bold" },
-        },
-        {
-          content: invoice.subtotal.toLocaleString("en-US", {
+        // Table data
+        const tableRows = cars.map((car, index) => [
+          index + 1,
+          formatDate(car.date),
+          car.stockNo || "",
+          car.companyName || invoice.clientCompanyName || "",
+          car.name || "",
+          car.chassis || "",
+          (car.amount || 0).toLocaleString("en-US", {
             minimumFractionDigits: 2,
           }),
-          styles: { fontStyle: "bold" },
-        },
-      ]);
+        ]);
 
-      // Generate table
-      autoTable(doc, {
-        startY: currentY,
-        head: [
-          [
-            "SR",
-            "DATE",
-            "STOCK",
-            "CLIENT NAME",
-            "VEHICLE",
-            "CHASSIS",
-            "AMOUNT",
+        // Add TOTAL row
+        tableRows.push([
+          {
+            content: "TOTAL",
+            colSpan: 6,
+            styles: { halign: "right", fontStyle: "bold" },
+          },
+          {
+            content: invoice.subtotal.toLocaleString("en-US", {
+              minimumFractionDigits: 2,
+            }),
+            styles: { fontStyle: "bold" },
+          },
+        ]);
+
+        // Generate table
+        autoTable(doc, {
+          startY: currentY,
+          head: [
+            [
+              "SR",
+              "DATE",
+              "STOCK",
+              "CLIENT NAME",
+              "VEHICLE",
+              "CHASSIS",
+              "AMOUNT",
+            ],
           ],
-        ],
-        body: tableRows,
-        theme: "grid",
-        headStyles: {
-          fillColor: [31, 41, 55],
-          halign: "left",
-          fontSize: 9,
-          cellPadding: 3,
-        },
-        styles: {
-          fontSize: 8,
-          valign: "middle",
-        },
-        columnStyles: {
-          0: { halign: "center", cellWidth: 10 },
-          1: { cellWidth: 25 },
-          2: { cellWidth: 25 },
-          3: { cellWidth: 30 },
-          4: { cellWidth: 25 },
-          5: { cellWidth: 35 },
-          6: { halign: "right", cellWidth: 25 },
-        },
-      });
+          body: tableRows,
+          theme: "grid",
+          headStyles: {
+            fillColor: [31, 41, 55],
+            halign: "left",
+            fontSize: 9,
+            cellPadding: 3,
+          },
+          styles: {
+            fontSize: 8,
+            valign: "middle",
+          },
+          columnStyles: {
+            0: { halign: "center", cellWidth: 10 },
+            1: { cellWidth: 25 },
+            2: { cellWidth: 25 },
+            3: { cellWidth: 30 },
+            4: { cellWidth: 25 },
+            5: { cellWidth: 35 },
+            6: { halign: "right", cellWidth: 25 },
+          },
+        });
 
-      // VAT and Total section
-      let finalY = doc.lastAutoTable.finalY + 10;
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(10);
+        // VAT and Total section
+        let finalY = doc.lastAutoTable.finalY + 10;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
 
-      if (invoice.vatPercentage > 0) {
-        doc.text(`VAT (${invoice.vatPercentage}%):`, margin, finalY);
+        if (invoice.vatPercentage > 0) {
+          doc.text(`VAT (${invoice.vatPercentage}%):`, margin, finalY);
+          doc.text(
+            `R${invoice.vatAmount.toLocaleString("en-US", {
+              minimumFractionDigits: 2,
+            })}`,
+            pageWidth - margin,
+            finalY,
+            { align: "right" },
+          );
+          finalY += 6;
+        } else {
+          doc.text("VAT: ZERO", margin, finalY);
+          doc.text(`R0`, pageWidth - margin, finalY, { align: "right" });
+          finalY += 6;
+        }
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(12);
+        doc.text("TOTAL:", margin, finalY);
         doc.text(
-          `R${invoice.vatAmount.toLocaleString("en-US", {
+          `R${invoice.totalAmount.toLocaleString("en-US", {
             minimumFractionDigits: 2,
           })}`,
           pageWidth - margin,
           finalY,
-          { align: "right" }
+          { align: "right" },
         );
-        finalY += 6;
-      } else {
-        doc.text("VAT: ZERO", margin, finalY);
-        doc.text(`R0`, pageWidth - margin, finalY, { align: "right" });
-        finalY += 6;
-      }
+        finalY += 10;
 
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(12);
-      doc.text("TOTAL:", margin, finalY);
-      doc.text(
-        `R${invoice.totalAmount.toLocaleString("en-US", {
-          minimumFractionDigits: 2,
-        })}`,
-        pageWidth - margin,
-        finalY,
-        { align: "right" }
-      );
-      finalY += 10;
-
-      // Payment Information Section
-      const paymentInfo = getPaymentInfo(invoice);
-      // Always show payment information section
-      // Add a separator line
-      doc.setDrawColor(200, 200, 200);
-      doc.line(margin, finalY, pageWidth - margin, finalY);
-      finalY += 8;
+        // Payment Information Section
+        const paymentInfo = getPaymentInfo(invoice);
+        // Always show payment information section
+        // Add a separator line
+        doc.setDrawColor(200, 200, 200);
+        doc.line(margin, finalY, pageWidth - margin, finalY);
+        finalY += 8;
 
         doc.setFont("helvetica", "bold");
         doc.setFontSize(11);
@@ -384,7 +407,7 @@ export default function InvoicesTable({
           })}`,
           pageWidth - margin,
           finalY,
-          { align: "right" }
+          { align: "right" },
         );
         finalY += 6;
 
@@ -404,7 +427,7 @@ export default function InvoicesTable({
           })}`,
           pageWidth - margin,
           finalY,
-          { align: "right" }
+          { align: "right" },
         );
         doc.setTextColor(0, 0, 0); // Reset color
         finalY += 6;
@@ -417,73 +440,73 @@ export default function InvoicesTable({
         doc.text(statusText, pageWidth - margin, finalY, { align: "right" });
         finalY += 8;
 
-      finalY += 4;
+        finalY += 4;
 
-      // Thank you message
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      doc.setTextColor(100);
-      doc.text(
-        "* THANK YOU FOR DOING BUSINESS WITH US...!!",
-        pageWidth / 2,
-        finalY,
-        { align: "center" }
-      );
-      finalY += 8;
-
-      // Descriptions section
-      if (invoice.descriptions && invoice.descriptions.length > 0) {
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(10);
-        doc.setTextColor(31, 41, 55);
-        doc.text("DESCRIPTIONS:", margin, finalY);
-        finalY += 6;
-
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(9);
-        invoice.descriptions.forEach((desc) => {
-          if (desc.trim()) {
-            doc.text(`• ${desc}`, margin + 5, finalY);
-            finalY += 5;
-          }
-        });
-        finalY += 3;
-      }
-
-      // Bank Details section
-      if (senderBankDetails) {
-        finalY += 5;
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(10);
-        doc.setTextColor(31, 41, 55);
-        doc.text("BANK DETAILS:", margin, finalY);
-        finalY += 6;
-        
+        // Thank you message
         doc.setFont("helvetica", "normal");
         doc.setFontSize(9);
         doc.setTextColor(100);
-        const bankLines = senderBankDetails.split('\n');
-        bankLines.forEach((line) => {
-          if (line.trim()) {
-            doc.text(line.trim(), margin + 5, finalY);
-            finalY += 4;
-          }
-        });
-      }
+        doc.text(
+          "* THANK YOU FOR DOING BUSINESS WITH US...!!",
+          pageWidth / 2,
+          finalY,
+          { align: "center" },
+        );
+        finalY += 8;
 
-      const fileName = `Invoice_${invoice.invoiceNumber}_${new Date(
-        invoice.invoiceDate
-      )
-        .toISOString()
-        .split("T")[0]}.pdf`;
-      doc.save(fileName);
-    } catch (error) {
-      console.error("Error generating PDF:", error);
-      alert("Failed to generate PDF");
-    } finally {
-      setGeneratingPDF(false);
-    }
-  }, [getPaymentInfo, fullUserData]);
+        // Descriptions section
+        if (invoice.descriptions && invoice.descriptions.length > 0) {
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(10);
+          doc.setTextColor(31, 41, 55);
+          doc.text("DESCRIPTIONS:", margin, finalY);
+          finalY += 6;
+
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(9);
+          invoice.descriptions.forEach((desc) => {
+            if (desc.trim()) {
+              doc.text(`• ${desc}`, margin + 5, finalY);
+              finalY += 5;
+            }
+          });
+          finalY += 3;
+        }
+
+        // Bank Details section
+        if (senderBankDetails) {
+          finalY += 5;
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(10);
+          doc.setTextColor(31, 41, 55);
+          doc.text("BANK DETAILS:", margin, finalY);
+          finalY += 6;
+
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(9);
+          doc.setTextColor(100);
+          const bankLines = senderBankDetails.split("\n");
+          bankLines.forEach((line) => {
+            if (line.trim()) {
+              doc.text(line.trim(), margin + 5, finalY);
+              finalY += 4;
+            }
+          });
+        }
+
+        const fileName = `Invoice_${invoice.invoiceNumber}_${
+          new Date(invoice.invoiceDate).toISOString().split("T")[0]
+        }.pdf`;
+        doc.save(fileName);
+      } catch (error) {
+        console.error("Error generating PDF:", error);
+        alert("Failed to generate PDF");
+      } finally {
+        setGeneratingPDF(false);
+      }
+    },
+    [getPaymentInfo, fullUserData],
+  );
 
   const handleDownloadPDF = useCallback(() => {
     if (viewingInvoice && invoiceCars.length > 0) {
@@ -500,8 +523,141 @@ export default function InvoicesTable({
         }
       }, 500);
     },
-    [handleViewInvoice, invoiceCars, generatePDFFromInvoice]
+    [handleViewInvoice, invoiceCars, generatePDFFromInvoice],
   );
+
+  const generateExcelFromInvoice = useCallback(
+    async (invoice, cars) => {
+      if (!cars || cars.length === 0) return;
+      setGeneratingExcel(true);
+      try {
+        const wb = XLSX.utils.book_new();
+
+        const invoiceData = [
+          [invoice.senderCompanyName.toUpperCase() || "COMPANY NAME"],
+          invoice.senderAddress ? [invoice.senderAddress] : [],
+          [],
+          ["TAX INVOICE"],
+          [],
+          [invoice.clientCompanyName.toUpperCase()],
+          [],
+          [
+            `INVOICE NO: ${invoice.invoiceNumber}`,
+            `DATE: ${formatDate(invoice.invoiceDate).toUpperCase()}`,
+          ],
+          [],
+          [
+            "SR",
+            "DATE",
+            "STOCK",
+            "CLIENT NAME",
+            "VEHICLE",
+            "CHASSIS",
+            "AMOUNT",
+          ],
+        ];
+
+        // Add car rows
+        cars.forEach((car, index) => {
+          invoiceData.push([
+            index + 1,
+            formatDate(car.date),
+            car.stockNo || "",
+            car.companyName || invoice.clientCompanyName || "",
+            car.name || "",
+            car.chassis || "",
+            car.amount || 0,
+          ]);
+        });
+
+        // Add totals
+        invoiceData.push([]);
+        invoiceData.push(["TOTAL", "", "", "", "", "", invoice.subtotal || 0]);
+        invoiceData.push([]);
+
+        if (invoice.vatPercentage > 0) {
+          invoiceData.push([
+            `VAT (${invoice.vatPercentage}%):`,
+            "",
+            "",
+            "",
+            "",
+            "",
+            `R${(invoice.vatAmount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}`,
+          ]);
+        } else {
+          invoiceData.push(["VAT: ZERO", "", "", "", "", "", "R0"]);
+        }
+
+        invoiceData.push([
+          "TOTAL",
+          "",
+          "",
+          "",
+          "",
+          "",
+          `R${(invoice.totalAmount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}`,
+        ]);
+        invoiceData.push([]);
+
+        // Add payment information section
+        const paymentInfo = getPaymentInfo(invoice);
+        invoiceData.push(["PAYMENT INFORMATION:"]);
+        invoiceData.push([
+          `Total Paid: R${paymentInfo.totalPaid.toLocaleString("en-US", { minimumFractionDigits: 2 })}`,
+        ]);
+        invoiceData.push([
+          `Remaining Balance: R${paymentInfo.remainingBalance.toLocaleString("en-US", { minimumFractionDigits: 2 })}`,
+        ]);
+        invoiceData.push([
+          `Payment Status: ${paymentInfo.paymentStatus.toUpperCase()}`,
+        ]);
+
+        invoiceData.push([]);
+        invoiceData.push(["* THANK YOU FOR DOING BUSINESS WITH US...!!"]);
+
+        // Add descriptions
+        if (invoice.descriptions && invoice.descriptions.length > 0) {
+          invoiceData.push([]);
+          invoiceData.push(["DESCRIPTIONS:"]);
+          invoice.descriptions.forEach((desc) => {
+            if (desc.trim()) {
+              invoiceData.push([`• ${desc}`]);
+            }
+          });
+        }
+
+        const ws = XLSX.utils.aoa_to_sheet(invoiceData);
+        ws["!cols"] = [
+          { wch: 5 }, // SR
+          { wch: 12 }, // DATE
+          { wch: 12 }, // STOCK
+          { wch: 20 }, // CLIENT NAME
+          { wch: 15 }, // VEHICLE
+          { wch: 20 }, // CHASSIS
+          { wch: 15 }, // AMOUNT
+        ];
+
+        XLSX.utils.book_append_sheet(wb, ws, "Invoice");
+        const fileName = `Invoice_${invoice.invoiceNumber}_${
+          new Date(invoice.invoiceDate).toISOString().split("T")[0]
+        }.xlsx`;
+        XLSX.writeFile(wb, fileName);
+      } catch (error) {
+        console.error("Error generating Excel:", error);
+        alert("Failed to generate Excel file");
+      } finally {
+        setGeneratingExcel(false);
+      }
+    },
+    [getPaymentInfo],
+  );
+
+  const handleDownloadExcel = useCallback(() => {
+    if (viewingInvoice && invoiceCars.length > 0) {
+      generateExcelFromInvoice(viewingInvoice, invoiceCars);
+    }
+  }, [viewingInvoice, invoiceCars, generateExcelFromInvoice]);
 
   const handleRecordPayment = useCallback(() => {
     setShowPaymentForm(true);
@@ -515,14 +671,14 @@ export default function InvoicesTable({
         paymentData,
       });
     },
-    [viewingInvoice, recordPaymentMutation]
+    [viewingInvoice, recordPaymentMutation],
   );
 
   const handleDeletePayment = useCallback(
     (invoiceId, paymentId) => {
       deletePaymentMutation.mutate({ invoiceId, paymentId });
     },
-    [deletePaymentMutation]
+    [deletePaymentMutation],
   );
 
   // Derived values
@@ -618,16 +774,30 @@ export default function InvoicesTable({
                         {invoice.senderCompanyName}
                       </td>
                       <td className="px-3 py-2 text-xs text-gray-600">
-                        {invoice.tripNumbers && invoice.tripNumbers.length > 0 ? (
+                        {invoice.tripNumbers &&
+                        invoice.tripNumbers.length > 0 ? (
                           <div className="space-y-1">
                             <button
                               onClick={() => {
-                                const trips = invoice.tripNumbers.map((tripNumber, idx) => ({
-                                  tripNumber,
-                                  date: invoice.tripDates && invoice.tripDates[idx] ? invoice.tripDates[idx] : null,
-                                  tripId: invoice.tripIds && invoice.tripIds[idx] ? invoice.tripIds[idx] : null,
-                                  truckNumber: invoice.truckNumbers && invoice.truckNumbers[idx] ? invoice.truckNumbers[idx] : null,
-                                }));
+                                const trips = invoice.tripNumbers.map(
+                                  (tripNumber, idx) => ({
+                                    tripNumber,
+                                    date:
+                                      invoice.tripDates &&
+                                      invoice.tripDates[idx]
+                                        ? invoice.tripDates[idx]
+                                        : null,
+                                    tripId:
+                                      invoice.tripIds && invoice.tripIds[idx]
+                                        ? invoice.tripIds[idx]
+                                        : null,
+                                    truckNumber:
+                                      invoice.truckNumbers &&
+                                      invoice.truckNumbers[idx]
+                                        ? invoice.truckNumbers[idx]
+                                        : null,
+                                  }),
+                                );
                                 setSelectedTrips(trips);
                               }}
                               className="text-left text-xs px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 transition-colors cursor-pointer hover:shadow-sm"
@@ -636,15 +806,29 @@ export default function InvoicesTable({
                               <div className="flex items-center gap-1">
                                 {invoice.tripNumbers[0] && (
                                   <a
-                                    href={invoice.tripIds && invoice.tripIds.length > 0 && invoice.tripIds[0] 
-                                      ? `/carrier-trips/${invoice.tripIds[0]}`
-                                      : `/carrier-trips?tripNumber=${encodeURIComponent(invoice.tripNumbers[0])}`}
+                                    href={
+                                      invoice.tripIds &&
+                                      invoice.tripIds.length > 0 &&
+                                      invoice.tripIds[0]
+                                        ? `/carrier-trips/${invoice.tripIds[0]}`
+                                        : `/carrier-trips?tripNumber=${encodeURIComponent(invoice.tripNumbers[0])}`
+                                    }
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      if (invoice.tripIds && invoice.tripIds.length > 0 && invoice.tripIds[0]) {
-                                        window.open(`/carrier-trips/${invoice.tripIds[0]}`, '_blank');
+                                      if (
+                                        invoice.tripIds &&
+                                        invoice.tripIds.length > 0 &&
+                                        invoice.tripIds[0]
+                                      ) {
+                                        window.open(
+                                          `/carrier-trips/${invoice.tripIds[0]}`,
+                                          "_blank",
+                                        );
                                       } else {
-                                        window.open(`/carrier-trips?tripNumber=${encodeURIComponent(invoice.tripNumbers[0])}`, '_blank');
+                                        window.open(
+                                          `/carrier-trips?tripNumber=${encodeURIComponent(invoice.tripNumbers[0])}`,
+                                          "_blank",
+                                        );
                                       }
                                     }}
                                     className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
@@ -655,10 +839,14 @@ export default function InvoicesTable({
                                   </a>
                                 )}
                                 {invoice.tripDates && invoice.tripDates[0] && (
-                                  <span className="text-gray-500">/{formatDate(invoice.tripDates[0])}</span>
+                                  <span className="text-gray-500">
+                                    /{formatDate(invoice.tripDates[0])}
+                                  </span>
                                 )}
                                 {invoice.tripNumbers.length > 1 && (
-                                  <span className="ml-1 text-gray-500">...</span>
+                                  <span className="ml-1 text-gray-500">
+                                    ...
+                                  </span>
                                 )}
                               </div>
                             </button>
@@ -675,9 +863,11 @@ export default function InvoicesTable({
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-xs text-right">
                         {(() => {
-                          const totalExcess = (paymentInfo.payments || []).reduce(
+                          const totalExcess = (
+                            paymentInfo.payments || []
+                          ).reduce(
                             (sum, payment) => sum + (payment.excessAmount || 0),
-                            0
+                            0,
                           );
                           return (
                             <div>
@@ -689,7 +879,11 @@ export default function InvoicesTable({
                               </div>
                               {totalExcess > 0 && (
                                 <div className="text-[10px] text-blue-400 mt-0.5">
-                                  (+R{totalExcess.toLocaleString("en-US", { minimumFractionDigits: 2 })})
+                                  (+R
+                                  {totalExcess.toLocaleString("en-US", {
+                                    minimumFractionDigits: 2,
+                                  })}
+                                  )
                                 </div>
                               )}
                             </div>
@@ -705,15 +899,18 @@ export default function InvoicesTable({
                           }
                         >
                           R{" "}
-                          {paymentInfo.remainingBalance.toLocaleString("en-US", {
-                            minimumFractionDigits: 2,
-                          })}
+                          {paymentInfo.remainingBalance.toLocaleString(
+                            "en-US",
+                            {
+                              minimumFractionDigits: 2,
+                            },
+                          )}
                         </span>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-center">
                         {getPaymentStatusBadge(
                           paymentInfo.paymentStatus,
-                          paymentInfo.remainingBalance
+                          paymentInfo.remainingBalance,
                         )}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-center">
@@ -736,7 +933,10 @@ export default function InvoicesTable({
                           {canDeleteInvoice(invoice) && (
                             <button
                               onClick={() =>
-                                handleDeleteInvoice(invoice._id, invoice.invoiceNumber)
+                                handleDeleteInvoice(
+                                  invoice._id,
+                                  invoice.invoiceNumber,
+                                )
                               }
                               disabled={deleteInvoiceMutation.isPending}
                               className="text-red-600 hover:text-red-800 disabled:opacity-50"
@@ -753,7 +953,10 @@ export default function InvoicesTable({
                 {/* Totals Row - Shows totals for entire filtered dataset */}
                 {totals && invoices.length > 0 && (
                   <tr className="bg-gray-50 border-t-2 border-gray-300 font-bold">
-                    <td colSpan="5" className="px-3 py-2 text-xs text-right font-semibold text-gray-700">
+                    <td
+                      colSpan="5"
+                      className="px-3 py-2 text-xs text-right font-semibold text-gray-700"
+                    >
                       TOTALS (All {pagination?.total || 0} invoices):
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-xs text-right font-bold text-green-700">
@@ -771,7 +974,9 @@ export default function InvoicesTable({
                     <td className="px-3 py-2 whitespace-nowrap text-xs text-right font-bold">
                       <span
                         className={
-                          totals.totalBalance > 0 ? "text-red-700" : "text-green-700"
+                          totals.totalBalance > 0
+                            ? "text-red-700"
+                            : "text-green-700"
                         }
                       >
                         R{" "}
@@ -839,12 +1044,14 @@ export default function InvoicesTable({
           invoiceCars={invoiceCars}
           loadingCars={loadingCars}
           generatingPDF={generatingPDF}
+          generatingExcel={generatingExcel}
           paymentInfo={viewingInvoicePaymentInfo}
           getPaymentStatusBadge={getPaymentStatusBadge}
           companyBalance={companyBalanceData}
           loadingCompanyBalance={loadingCompanyBalance}
           onClose={handleCloseModal}
           onDownloadPDF={handleDownloadPDF}
+          onDownloadExcel={handleDownloadExcel}
           onRecordPayment={handleRecordPayment}
           onDeletePayment={handleDeletePayment}
         />
@@ -860,7 +1067,6 @@ export default function InvoicesTable({
           isPending={recordPaymentMutation.isPending}
         />
       )}
-
 
       {/* Trip Details Modal */}
       {selectedTrips && (

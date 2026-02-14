@@ -3,12 +3,22 @@
 import React, { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus, ChevronDown, ChevronRight, Edit, Trash2, FileSpreadsheet } from "lucide-react";
+import {
+  Plus,
+  ChevronDown,
+  ChevronRight,
+  Edit,
+  Trash2,
+  FileSpreadsheet,
+} from "lucide-react";
 import CarrierTripForm from "./CarrierTripForm";
 import CarForm from "./CarForm";
 import { deleteCar } from "@/app/lib/carriers-actions/cars";
 import { formatDate } from "@/app/lib/utils/dateFormat";
-import { getAllCarriers, deleteCarrier } from "@/app/lib/carriers-actions/carriers";
+import {
+  getAllCarriers,
+  deleteCarrier,
+} from "@/app/lib/carriers-actions/carriers";
 import { exportCarriersAndCars } from "@/app/lib/utils/exportCarriers";
 
 // Component to show truncated text with ellipsis indicator
@@ -22,13 +32,13 @@ function TruncatedText({ text, maxLines = 2, className = "" }) {
       className={`whitespace-normal ${className}`}
       title={text}
       style={{
-        display: '-webkit-box',
+        display: "-webkit-box",
         WebkitLineClamp: maxLines,
-        WebkitBoxOrient: 'vertical',
-        overflow: 'hidden',
-        wordBreak: 'break-word',
-        lineHeight: '1.2em',
-        textOverflow: 'ellipsis'
+        WebkitBoxOrient: "vertical",
+        overflow: "hidden",
+        wordBreak: "break-word",
+        lineHeight: "1.2em",
+        textOverflow: "ellipsis",
       }}
     >
       {text}
@@ -81,19 +91,25 @@ export default function SimpleCarriersTable({
   const [selectedTripIds, setSelectedTripIds] = useState(new Set());
 
   // Notify parent when selected trips change
-  const handleSelectedTripsChange = useCallback((newSelectedTrips) => {
-    setSelectedTripIds(newSelectedTrips);
-    if (onSelectedTripsChange) {
-      onSelectedTripsChange(Array.from(newSelectedTrips));
-    }
-  }, [onSelectedTripsChange]);
+  const handleSelectedTripsChange = useCallback(
+    (newSelectedTrips) => {
+      setSelectedTripIds(newSelectedTrips);
+      if (onSelectedTripsChange) {
+        onSelectedTripsChange(Array.from(newSelectedTrips));
+      }
+    },
+    [onSelectedTripsChange],
+  );
 
   // Derived values with useMemo
-  const currentFilters = useMemo(() => ({
-    company: searchParams.get("company") || "",
-    startDate: searchParams.get("startDate") || "",
-    endDate: searchParams.get("endDate") || "",
-  }), [searchParams]);
+  const currentFilters = useMemo(
+    () => ({
+      company: searchParams.get("company") || "",
+      startDate: searchParams.get("startDate") || "",
+      endDate: searchParams.get("endDate") || "",
+    }),
+    [searchParams],
+  );
 
   // Mutations
   const deleteCarMutation = useMutation({
@@ -110,18 +126,24 @@ export default function SimpleCarriersTable({
     mutationFn: deleteCarrier,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["carriers"] });
+      // Also invalidate truck queries to refresh meter readings and maintenance status
+      queryClient.invalidateQueries({ queryKey: ["trucks"] });
     },
   });
 
   const toggleActiveMutation = useMutation({
     mutationFn: async (carrierId) => {
       const response = await fetch(`/api/carriers/${carrierId}/toggle-active`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
       });
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Network error' }));
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        const errorData = await response
+          .json()
+          .catch(() => ({ error: "Network error" }));
+        throw new Error(
+          errorData.error || `HTTP error! status: ${response.status}`,
+        );
       }
       return response.json();
     },
@@ -148,7 +170,7 @@ export default function SimpleCarriersTable({
       if (!confirm("Are you sure you want to delete this car?")) return;
       deleteCarMutation.mutate(carId);
     },
-    [deleteCarMutation]
+    [deleteCarMutation],
   );
 
   const handleDeleteCarrier = useCallback(
@@ -157,20 +179,60 @@ export default function SimpleCarriersTable({
       const tripDisplay = tripNumber || carrierIdStr;
 
       const confirmed = window.confirm(
-        `Are you sure you want to delete trip "${tripDisplay}"?\n\nThis will permanently delete:\n- The trip/carrier\n- All cars associated with this trip\n\nThis action cannot be undone!`
+        `Are you sure you want to delete trip "${tripDisplay}"?\n\nThis will permanently delete:\n- The trip/carrier\n- All cars associated with this trip\n- All expenses (fuel, driver rent, etc.)\n- Synced truck and driver expenses\n\nThis action cannot be undone!`,
       );
 
       if (!confirmed) return;
       deleteCarrierMutation.mutate(carrierIdStr, {
         onSuccess: (result) => {
-          alert(`Trip deleted successfully. ${result.deletedCarsCount} car(s) were also deleted.`);
+          if (result.deletionReport) {
+            const report = result.deletionReport;
+            let message = `✓ Trip "${report.tripNumber}" Deleted Successfully!\n\n`;
+
+            // Items deleted summary
+            message += `📋 Items Deleted:\n`;
+            if (report.itemsDeleted.cars > 0) {
+              message += `  • ${report.itemsDeleted.cars} Car(s)\n`;
+            }
+            if (report.itemsDeleted.expenses > 0) {
+              message += `  • ${report.itemsDeleted.fuelExpenses} Fuel Expense(s)\n`;
+              message += `  • ${report.itemsDeleted.driverRentExpenses} Driver Rent(s)\n`;
+              if (report.itemsDeleted.otherExpenses > 0) {
+                message += `  • ${report.itemsDeleted.otherExpenses} Other Expense(s)\n`;
+              }
+              message += `  • Total Expenses Removed: R${report.itemsDeleted.totalExpenseAmount.toFixed(2)}\n`;
+            }
+
+            // Truck update
+            if (report.truckUpdated) {
+              message += `\n🚗 Truck Updated:\n`;
+              message += `  • Truck: ${report.truckUpdated.truckName}\n`;
+              message += `  • Meter Reading: ${report.truckUpdated.originalMeterReading}km → ${report.truckUpdated.newMeterReading}km\n`;
+              message += `  • Distance Removed: ${report.truckUpdated.distanceRemoved}km\n`;
+              message += `  • Maintenance: ${report.truckUpdated.maintenanceStatus}\n`;
+            }
+
+            // Details
+            if (report.details.length > 0) {
+              message += `\n📝 Details:\n`;
+              report.details.forEach((detail) => {
+                message += `${detail}\n`;
+              });
+            }
+
+            alert(message);
+          } else {
+            alert(
+              `Trip deleted successfully. ${result.deletedCarsCount} car(s) were also deleted.`,
+            );
+          }
         },
         onError: (error) => {
           alert(error.message || "Failed to delete trip");
         },
       });
     },
-    [deleteCarrierMutation]
+    [deleteCarrierMutation],
   );
 
   const handleToggleActive = useCallback(
@@ -178,7 +240,9 @@ export default function SimpleCarriersTable({
       e.preventDefault();
       e.stopPropagation();
 
-      const carrierIdStr = carrierId?.toString ? carrierId.toString() : String(carrierId);
+      const carrierIdStr = carrierId?.toString
+        ? carrierId.toString()
+        : String(carrierId);
       const newStatus = currentStatus === false ? true : false;
 
       // Optimistic update
@@ -189,7 +253,7 @@ export default function SimpleCarriersTable({
           carriers: oldData.carriers.map((carrier) =>
             carrier._id.toString() === carrierIdStr
               ? { ...carrier, isActive: newStatus }
-              : carrier
+              : carrier,
           ),
         };
       });
@@ -201,7 +265,7 @@ export default function SimpleCarriersTable({
         },
       });
     },
-    [toggleActiveMutation, queryClient]
+    [toggleActiveMutation, queryClient],
   );
 
   const handleExportToExcel = useCallback(async () => {
@@ -233,17 +297,18 @@ export default function SimpleCarriersTable({
     }
   }, [searchParams, isSuperAdmin]);
 
-
   const handleCarFormClose = useCallback(
     (carrierIdStr) => {
       setShowCarForm((prev) => ({ ...prev, [carrierIdStr]: false }));
       setCarFormCarrier(null);
       // Invalidate cars query for this carrier
-      queryClient.invalidateQueries({ queryKey: ["carrierCars", carrierIdStr] });
+      queryClient.invalidateQueries({
+        queryKey: ["carrierCars", carrierIdStr],
+      });
       // Invalidate carriers to update counts
       queryClient.invalidateQueries({ queryKey: ["carriers"] });
     },
-    [queryClient]
+    [queryClient],
   );
 
   // Derived pagination info
@@ -354,14 +419,25 @@ export default function SimpleCarriersTable({
                   <th className="px-2 py-1.5 text-center font-medium text-gray-600 text-[10px] w-8">
                     <input
                       type="checkbox"
-                      checked={carriers.filter(c => (c.type === "trip" || (!c.type && c.tripNumber))).length > 0 && 
-                               carriers.filter(c => (c.type === "trip" || (!c.type && c.tripNumber)))
-                                 .every(c => selectedTripIds.has(c._id.toString()))}
+                      checked={
+                        carriers.filter(
+                          (c) => c.type === "trip" || (!c.type && c.tripNumber),
+                        ).length > 0 &&
+                        carriers
+                          .filter(
+                            (c) =>
+                              c.type === "trip" || (!c.type && c.tripNumber),
+                          )
+                          .every((c) => selectedTripIds.has(c._id.toString()))
+                      }
                       onChange={(e) => {
                         if (e.target.checked) {
                           const tripIds = carriers
-                            .filter(c => (c.type === "trip" || (!c.type && c.tripNumber)))
-                            .map(c => c._id.toString());
+                            .filter(
+                              (c) =>
+                                c.type === "trip" || (!c.type && c.tripNumber),
+                            )
+                            .map((c) => c._id.toString());
                           handleSelectedTripsChange(new Set(tripIds));
                         } else {
                           handleSelectedTripsChange(new Set());
@@ -372,20 +448,44 @@ export default function SimpleCarriersTable({
                     />
                   </th>
                   <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px] w-6"></th>
-                  <th className="px-2 py-1.5 text-center font-medium text-gray-600 text-[10px] w-8">#</th>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">TRIPS</th>
+                  <th className="px-2 py-1.5 text-center font-medium text-gray-600 text-[10px] w-8">
+                    #
+                  </th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">
+                    TRIPS
+                  </th>
                   {isSuperAdmin && (
-                    <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">USER</th>
+                    <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">
+                      USER
+                    </th>
                   )}
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">DATE</th>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">TRUCK/DRIVER</th>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">DISTANCE (km)</th>
-                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px] min-w-[200px]">NOTES</th>
-                  <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">CARS</th>
-                  <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">TOTAL</th>
-                  <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">EXPENSE</th>
-                  <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">PROFIT</th>
-                  <th className="px-2 py-1.5 text-center font-medium text-gray-600 text-[10px]">ACT</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">
+                    DATE
+                  </th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">
+                    TRUCK/DRIVER
+                  </th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px]">
+                    DISTANCE (km)
+                  </th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-600 text-[10px] min-w-[200px]">
+                    NOTES
+                  </th>
+                  <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">
+                    CARS
+                  </th>
+                  <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">
+                    TOTAL
+                  </th>
+                  <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">
+                    EXPENSE
+                  </th>
+                  <th className="px-2 py-1.5 text-right font-medium text-gray-600 text-[10px]">
+                    PROFIT
+                  </th>
+                  <th className="px-2 py-1.5 text-center font-medium text-gray-600 text-[10px]">
+                    ACT
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -422,7 +522,10 @@ export default function SimpleCarriersTable({
                       onDeleteCar={handleDeleteCar}
                       onAddCar={() => {
                         setCarFormCarrier(carrier);
-                        setShowCarForm((prev) => ({ ...prev, [carrierIdStr]: true }));
+                        setShowCarForm((prev) => ({
+                          ...prev,
+                          [carrierIdStr]: true,
+                        }));
                       }}
                       companies={companies}
                       users={users}
@@ -490,7 +593,7 @@ function CarrierCarsRow({
   // Derived values with useMemo
   const carsTotal = useMemo(
     () => cars.reduce((sum, car) => sum + (car.amount || 0), 0),
-    [cars]
+    [cars],
   );
 
   const totalAmount = carrier.totalAmount || carsTotal;
@@ -500,7 +603,8 @@ function CarrierCarsRow({
     ? (pagination.page - 1) * pagination.limit + index + 1
     : index + 1;
 
-  const isTrip = carrier.type === "trip" || (!carrier.type && carrier.tripNumber);
+  const isTrip =
+    carrier.type === "trip" || (!carrier.type && carrier.tripNumber);
   const isSelected = selectedTripIds.has(carrierIdStr);
 
   return (
@@ -510,7 +614,10 @@ function CarrierCarsRow({
           carrier.isActive === false ? "opacity-60 bg-gray-100" : ""
         } ${isSelected ? "bg-blue-50" : ""}`}
       >
-        <td className="px-2 py-1.5 text-center" onClick={(e) => e.stopPropagation()}>
+        <td
+          className="px-2 py-1.5 text-center"
+          onClick={(e) => e.stopPropagation()}
+        >
           {isTrip && (
             <input
               type="checkbox"
@@ -524,7 +631,10 @@ function CarrierCarsRow({
             />
           )}
         </td>
-        <td className="px-2 py-1.5 text-gray-400 cursor-pointer" onClick={() => onToggle(carrierIdStr)}>
+        <td
+          className="px-2 py-1.5 text-gray-400 cursor-pointer"
+          onClick={() => onToggle(carrierIdStr)}
+        >
           {isExpanded ? (
             <ChevronDown className="w-3 h-3" />
           ) : (
@@ -547,7 +657,10 @@ function CarrierCarsRow({
                 {carrier.tripNumber || carrier.name || "N/A"}
               </a>
             ) : (
-              <span className="cursor-pointer" onClick={() => onToggle(carrierIdStr)}>
+              <span
+                className="cursor-pointer"
+                onClick={() => onToggle(carrierIdStr)}
+              >
                 {carrier.tripNumber || carrier.name || "N/A"}
               </span>
             )}
@@ -574,21 +687,22 @@ function CarrierCarsRow({
         </td>
         <td
           className="px-2 py-1.5 text-gray-600 text-[10px] max-w-[150px]"
-          title={
-            `${carrier.truckData?.name || carrier.carrierName || ""} ${
-              carrier.truckData?.drivers && carrier.truckData.drivers.length > 0
-                ? `- ${carrier.truckData.drivers.map(d => d.name).join(", ")}`
-                : carrier.driverName ? `- ${carrier.driverName}` : ""
-            }`
-          }
+          title={`${carrier.truckData?.name || carrier.carrierName || ""} ${
+            carrier.truckData?.drivers && carrier.truckData.drivers.length > 0
+              ? `- ${carrier.truckData.drivers.map((d) => d.name).join(", ")}`
+              : carrier.driverName
+                ? `- ${carrier.driverName}`
+                : ""
+          }`}
         >
           <div className="truncate">
             <div className="font-medium">
               {carrier.truckData?.name || carrier.carrierName || "-"}
             </div>
-            {carrier.truckData?.drivers && carrier.truckData.drivers.length > 0 ? (
+            {carrier.truckData?.drivers &&
+            carrier.truckData.drivers.length > 0 ? (
               <div className="text-[9px] text-gray-500 truncate">
-                {carrier.truckData.drivers.map(d => d.name).join(", ")}
+                {carrier.truckData.drivers.map((d) => d.name).join(", ")}
               </div>
             ) : carrier.driverName ? (
               <div className="text-[9px] text-gray-500 truncate">
@@ -607,12 +721,14 @@ function CarrierCarsRow({
           {carrier.carCount || 0}
         </td>
         <td className="px-2 py-1.5 text-right text-green-600 font-semibold whitespace-nowrap">
-          R{(carrier.totalAmount || 0).toLocaleString("en-US", {
+          R
+          {(carrier.totalAmount || 0).toLocaleString("en-US", {
             minimumFractionDigits: 2,
           })}
         </td>
         <td className="px-2 py-1.5 text-right text-red-600 whitespace-nowrap">
-          R{(carrier.totalExpense || 0).toLocaleString("en-US", {
+          R
+          {(carrier.totalExpense || 0).toLocaleString("en-US", {
             minimumFractionDigits: 2,
           })}
         </td>
@@ -621,7 +737,8 @@ function CarrierCarsRow({
             profit >= 0 ? "text-green-600" : "text-red-600"
           }`}
         >
-          R{profit.toLocaleString("en-US", {
+          R
+          {profit.toLocaleString("en-US", {
             minimumFractionDigits: 2,
           })}
         </td>
@@ -669,8 +786,8 @@ function CarrierCarsRow({
                 {isToggling
                   ? "..."
                   : carrier.isActive === false
-                  ? "Inactive"
-                  : "Active"}
+                    ? "Inactive"
+                    : "Active"}
               </button>
             )}
           </div>
@@ -680,10 +797,7 @@ function CarrierCarsRow({
       {/* Expanded Cars Table */}
       {isExpanded && (
         <tr>
-          <td
-            colSpan={isSuperAdmin ? 14 : 13}
-            className="px-0 py-0 bg-gray-50"
-          >
+          <td colSpan={isSuperAdmin ? 14 : 13} className="px-0 py-0 bg-gray-50">
             <div className="px-2 py-2">
               <div className="flex justify-between items-center mb-2">
                 <h4 className="text-xs font-semibold text-gray-700">
@@ -754,7 +868,8 @@ function CarrierCarsRow({
                             {car.chassis}
                           </td>
                           <td className="px-1.5 py-1 text-right text-green-600 font-semibold whitespace-nowrap">
-                            R{(car.amount || 0).toLocaleString("en-US", {
+                            R
+                            {(car.amount || 0).toLocaleString("en-US", {
                               minimumFractionDigits: 2,
                             })}
                           </td>
@@ -782,7 +897,8 @@ function CarrierCarsRow({
                           Total:
                         </td>
                         <td className="px-1.5 py-1 text-right text-green-600 font-bold text-xs">
-                          R{carsTotal.toLocaleString("en-US", {
+                          R
+                          {carsTotal.toLocaleString("en-US", {
                             minimumFractionDigits: 2,
                           })}
                         </td>

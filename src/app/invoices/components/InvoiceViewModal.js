@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Download, X, Edit2 } from "lucide-react";
+import { Download, X, Edit2, FileSpreadsheet } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
 import { setCompanyCredit } from "@/app/lib/invoice-actions/company-balances";
 import { useUser } from "@/app/components/UserContext";
@@ -14,12 +14,14 @@ export default function InvoiceViewModal({
   invoiceCars,
   loadingCars,
   generatingPDF,
+  generatingExcel,
   paymentInfo,
   getPaymentStatusBadge,
   companyBalance,
   loadingCompanyBalance,
   onClose,
   onDownloadPDF,
+  onDownloadExcel,
   onRecordPayment,
   onDeletePayment,
 }) {
@@ -28,14 +30,17 @@ export default function InvoiceViewModal({
   const [newCreditBalance, setNewCreditBalance] = useState("");
   const queryClient = useQueryClient();
   const { fullUserData } = useUser();
-  
+
   // Get bank details from user context
   const senderBankDetails = fullUserData?.bankDetails || "";
 
   const updateCreditMutation = useMutation({
-    mutationFn: ({ companyName, newBalance }) => setCompanyCredit(companyName, parseFloat(newBalance) || 0),
+    mutationFn: ({ companyName, newBalance }) =>
+      setCompanyCredit(companyName, parseFloat(newBalance) || 0),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["companyBalance", invoice.clientCompanyName] });
+      queryClient.invalidateQueries({
+        queryKey: ["companyBalance", invoice.clientCompanyName],
+      });
       queryClient.invalidateQueries({ queryKey: ["company-balances"] });
       setEditingCredit(false);
       setNewCreditBalance("");
@@ -79,13 +84,28 @@ export default function InvoiceViewModal({
             <div className="flex gap-2">
               <button
                 onClick={onDownloadPDF}
-                disabled={generatingPDF || loadingCars || invoiceCars.length === 0}
+                disabled={
+                  generatingPDF || loadingCars || invoiceCars.length === 0
+                }
                 className="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 flex items-center gap-2"
               >
                 <Download className="w-4 h-4" />
                 {generatingPDF ? "Generating..." : "PDF"}
               </button>
-              <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+              <button
+                onClick={onDownloadExcel}
+                disabled={
+                  generatingExcel || loadingCars || invoiceCars.length === 0
+                }
+                className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 flex items-center gap-2"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                {generatingExcel ? "Generating..." : "Excel"}
+              </button>
+              <button
+                onClick={onClose}
+                className="text-gray-400 hover:text-gray-600"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -105,10 +125,16 @@ export default function InvoiceViewModal({
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Sender</h3>
-                  <p className="text-sm text-gray-900">{invoice.senderCompanyName}</p>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                    Sender
+                  </h3>
+                  <p className="text-sm text-gray-900">
+                    {invoice.senderCompanyName}
+                  </p>
                   {invoice.senderAddress && (
-                    <p className="text-sm text-gray-600 mt-1">{invoice.senderAddress}</p>
+                    <p className="text-sm text-gray-600 mt-1">
+                      {invoice.senderAddress}
+                    </p>
                   )}
                   {senderBankDetails && (
                     <div className="text-sm text-gray-600 mt-2 whitespace-pre-line">
@@ -117,19 +143,29 @@ export default function InvoiceViewModal({
                   )}
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Client</h3>
-                  <p className="text-sm text-gray-900">{invoice.clientCompanyName}</p>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                    Client
+                  </h3>
+                  <p className="text-sm text-gray-900">
+                    {invoice.clientCompanyName}
+                  </p>
                   {loadingCompanyBalance ? (
-                    <p className="text-xs text-gray-500 mt-2">Loading balance...</p>
+                    <p className="text-xs text-gray-500 mt-2">
+                      Loading balance...
+                    </p>
                   ) : companyBalance?.success ? (
                     <div className="mt-2 space-y-1">
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-gray-600">Credit Balance:</span>
                         <div className="flex items-center gap-2">
                           <span className="font-semibold text-green-600">
-                            R{(companyBalance.creditBalance || 0).toLocaleString("en-US", {
-                              minimumFractionDigits: 2,
-                            })}
+                            R
+                            {(companyBalance.creditBalance || 0).toLocaleString(
+                              "en-US",
+                              {
+                                minimumFractionDigits: 2,
+                              },
+                            )}
                           </span>
                           <button
                             onClick={handleEditCredit}
@@ -143,9 +179,13 @@ export default function InvoiceViewModal({
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-gray-600">Due Balance:</span>
                         <span className="font-semibold text-blue-600">
-                          R{(companyBalance.dueBalance || 0).toLocaleString("en-US", {
-                            minimumFractionDigits: 2,
-                          })}
+                          R
+                          {(companyBalance.dueBalance || 0).toLocaleString(
+                            "en-US",
+                            {
+                              minimumFractionDigits: 2,
+                            },
+                          )}
                         </span>
                       </div>
                     </div>
@@ -154,16 +194,24 @@ export default function InvoiceViewModal({
               </div>
 
               {/* Trip Information */}
-              {(invoice.tripNumbers && invoice.tripNumbers.length > 0) && (
+              {invoice.tripNumbers && invoice.tripNumbers.length > 0 && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Trip Information</h3>
-                  {invoice.tripNumbers.length === 1 && invoice.tripIds && invoice.tripIds.length > 0 && invoice.tripIds[0] ? (
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">
+                    Trip Information
+                  </h3>
+                  {invoice.tripNumbers.length === 1 &&
+                  invoice.tripIds &&
+                  invoice.tripIds.length > 0 &&
+                  invoice.tripIds[0] ? (
                     // Single trip with ID - navigate directly to detail page
                     <a
                       href={`/carrier-trips/${invoice.tripIds[0]}`}
                       onClick={(e) => {
                         e.preventDefault();
-                        window.open(`/carrier-trips/${invoice.tripIds[0]}`, '_blank');
+                        window.open(
+                          `/carrier-trips/${invoice.tripIds[0]}`,
+                          "_blank",
+                        );
                       }}
                       className="block w-full text-left text-sm px-3 py-2 bg-white hover:bg-blue-100 text-blue-700 rounded border border-blue-300 transition-colors cursor-pointer hover:shadow-sm"
                       target="_blank"
@@ -178,12 +226,23 @@ export default function InvoiceViewModal({
                     // Multiple trips or no ID - open modal
                     <button
                       onClick={() => {
-                        const trips = invoice.tripNumbers.map((tripNumber, idx) => ({
-                          tripNumber,
-                          date: invoice.tripDates && invoice.tripDates[idx] ? invoice.tripDates[idx] : null,
-                          tripId: invoice.tripIds && invoice.tripIds[idx] ? invoice.tripIds[idx] : null,
-                          truckNumber: invoice.truckNumbers && invoice.truckNumbers[idx] ? invoice.truckNumbers[idx] : null,
-                        }));
+                        const trips = invoice.tripNumbers.map(
+                          (tripNumber, idx) => ({
+                            tripNumber,
+                            date:
+                              invoice.tripDates && invoice.tripDates[idx]
+                                ? invoice.tripDates[idx]
+                                : null,
+                            tripId:
+                              invoice.tripIds && invoice.tripIds[idx]
+                                ? invoice.tripIds[idx]
+                                : null,
+                            truckNumber:
+                              invoice.truckNumbers && invoice.truckNumbers[idx]
+                                ? invoice.truckNumbers[idx]
+                                : null,
+                          }),
+                        );
                         setSelectedTrips(trips);
                       }}
                       className="block w-full text-left text-sm px-3 py-2 bg-white hover:bg-blue-100 text-blue-700 rounded border border-blue-300 transition-colors cursor-pointer hover:shadow-sm"
@@ -234,13 +293,22 @@ export default function InvoiceViewModal({
                     <tbody className="bg-white divide-y divide-gray-200">
                       {invoiceCars.map((car, index) => (
                         <tr key={car._id}>
-                          <td className="px-3 py-2 text-gray-600">{index + 1}</td>
-                          <td className="px-3 py-2 text-gray-600">{formatDate(car.date)}</td>
-                          <td className="px-3 py-2 font-medium">{car.stockNo}</td>
+                          <td className="px-3 py-2 text-gray-600">
+                            {index + 1}
+                          </td>
+                          <td className="px-3 py-2 text-gray-600">
+                            {formatDate(car.date)}
+                          </td>
+                          <td className="px-3 py-2 font-medium">
+                            {car.stockNo}
+                          </td>
                           <td className="px-3 py-2">{car.name}</td>
-                          <td className="px-3 py-2 font-mono text-xs">{car.chassis}</td>
+                          <td className="px-3 py-2 font-mono text-xs">
+                            {car.chassis}
+                          </td>
                           <td className="px-3 py-2 text-right text-green-600 font-semibold">
-                            R{(car.amount || 0).toLocaleString("en-US", {
+                            R
+                            {(car.amount || 0).toLocaleString("en-US", {
                               minimumFractionDigits: 2,
                             })}
                           </td>
@@ -256,7 +324,8 @@ export default function InvoiceViewModal({
                           Subtotal:
                         </td>
                         <td className="px-3 py-2 text-right font-semibold text-green-600">
-                          R{invoice.subtotal.toLocaleString("en-US", {
+                          R
+                          {invoice.subtotal.toLocaleString("en-US", {
                             minimumFractionDigits: 2,
                           })}
                         </td>
@@ -270,7 +339,8 @@ export default function InvoiceViewModal({
                             VAT ({invoice.vatPercentage}%):
                           </td>
                           <td className="px-3 py-2 text-right font-semibold text-green-600">
-                            R{invoice.vatAmount.toLocaleString("en-US", {
+                            R
+                            {invoice.vatAmount.toLocaleString("en-US", {
                               minimumFractionDigits: 2,
                             })}
                           </td>
@@ -284,7 +354,8 @@ export default function InvoiceViewModal({
                           Total:
                         </td>
                         <td className="px-3 py-2 text-right font-bold text-green-600">
-                          R{invoice.totalAmount.toLocaleString("en-US", {
+                          R
+                          {invoice.totalAmount.toLocaleString("en-US", {
                             minimumFractionDigits: 2,
                           })}
                         </td>
@@ -352,7 +423,10 @@ export default function InvoiceViewModal({
 
             <div className="mb-4">
               <p className="text-sm text-gray-600 mb-2">
-                Company: <span className="font-semibold">{invoice.clientCompanyName}</span>
+                Company:{" "}
+                <span className="font-semibold">
+                  {invoice.clientCompanyName}
+                </span>
               </p>
               <p className="text-xs text-gray-500 mb-4">
                 Current Credit Balance: R
@@ -385,7 +459,9 @@ export default function InvoiceViewModal({
                   disabled={updateCreditMutation.isPending}
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                 >
-                  {updateCreditMutation.isPending ? "Updating..." : "Update Balance"}
+                  {updateCreditMutation.isPending
+                    ? "Updating..."
+                    : "Update Balance"}
                 </button>
                 <button
                   type="button"
