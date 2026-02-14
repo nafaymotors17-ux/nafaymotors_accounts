@@ -1,52 +1,82 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Trash2 } from "lucide-react";
 import { getDashboardData } from "../lib/dashboard-actions/dashboard";
+import { deleteCarrier } from "../lib/carriers-actions/carriers";
 
 export default function Dashboard() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
   const fetchingRef = useRef(false);
 
-  useEffect(() => {
-    // Prevent duplicate calls (especially in React Strict Mode)
+  const fetchDashboardData = useCallback(async (isRefresh = false) => {
     if (fetchingRef.current) return;
-    
-    async function fetchDashboardData() {
-      if (fetchingRef.current) return;
-      fetchingRef.current = true;
-      
-      try {
-        setLoading(true);
-        setError(null);
-        const result = await getDashboardData();
-        
-        if (result.error === "Unauthorized") {
-          router.push("/login");
-          return;
-        }
-        
-        if (result.error) {
-          setError(result.error);
-        } else {
-          setData(result);
-        }
-      } catch (err) {
-        console.error("Error loading dashboard:", err);
-        setError("Failed to load dashboard data");
-      } finally {
-        setLoading(false);
-        fetchingRef.current = false;
-      }
-    }
+    fetchingRef.current = true;
 
+    try {
+      if (!isRefresh) setLoading(true);
+      setError(null);
+      const result = await getDashboardData();
+
+      if (result.error === "Unauthorized") {
+        router.push("/login");
+        return;
+      }
+
+      if (result.error) {
+        setError(result.error);
+      } else {
+        setData(result);
+      }
+    } catch (err) {
+      console.error("Error loading dashboard:", err);
+      setError("Failed to load dashboard data");
+    } finally {
+      setLoading(false);
+      fetchingRef.current = false;
+    }
+  }, [router]);
+
+  useEffect(() => {
     fetchDashboardData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty dependency array - only run once on mount
+  }, [fetchDashboardData]);
+
+  const handleDeleteTrip = async (carrier) => {
+    const tripDisplay = carrier.type === "trip" ? carrier.tripNumber : carrier.name;
+    const confirmed = window.confirm(
+      `Are you sure you want to delete trip "${tripDisplay}"?\n\nThis will permanently delete the trip, all cars, and all expenses. This cannot be undone!`
+    );
+    if (!confirmed) return;
+
+    setDeletingId(carrier._id);
+    try {
+      const result = await deleteCarrier(carrier._id);
+      if (result.error) {
+        alert(result.error);
+      } else {
+        await fetchDashboardData(true);
+      }
+    } catch (err) {
+      alert(err.message || "Failed to delete trip");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const canDeleteTrip = (carrier, session) => {
+    if (!session) return false;
+    const sessionUserId = session.userId?.toString?.() || session.userId;
+    return (
+      session.role === "super_admin" ||
+      carrier.userId === sessionUserId
+    );
+  };
 
   if (loading) {
     return (
@@ -168,12 +198,27 @@ export default function Dashboard() {
                       {carrier.carCount || 0} cars • R{((carrier.totalAmount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 }))}
                     </p>
                   </div>
-                  <Link
-                    href={`/carrier-trips?carrier=${carrier._id}`}
-                    className="text-xs text-blue-600 hover:text-blue-700"
-                  >
-                    View
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href={`/carrier-trips?carrier=${carrier._id}`}
+                      className="text-xs text-blue-600 hover:text-blue-700"
+                    >
+                      View
+                    </Link>
+                    {canDeleteTrip(carrier, session) && (
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleDeleteTrip(carrier);
+                        }}
+                        disabled={deletingId === carrier._id}
+                        className="text-red-600 hover:text-red-800 disabled:opacity-50"
+                        title="Delete Trip"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

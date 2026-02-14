@@ -111,6 +111,7 @@ export async function getDashboardData() {
             type: 1,
             carCount: 1,
             totalAmount: 1,
+            userId: 1,
           },
         },
       ]),
@@ -124,10 +125,11 @@ export async function getDashboardData() {
     const totalCars = carsStatsResult.totalCars || 0;
     const totalAmount = carsStatsResult.totalAmount || 0;
 
-    // Format recent carriers
+    // Format recent carriers (include userId for delete permission check)
     const carriers = recentCarriers.map((carrier) => ({
       ...carrier,
       _id: carrier._id.toString(),
+      userId: carrier.userId?.toString?.() || carrier.userId,
     }));
 
     return {

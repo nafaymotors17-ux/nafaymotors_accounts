@@ -13,7 +13,9 @@ export default function PaymentTrackingSection({
   return (
     <div className="border rounded-lg overflow-hidden">
       <div className="bg-gray-50 p-3 border-b flex justify-between items-center">
-        <h3 className="font-semibold text-gray-800 text-sm">Payment Tracking</h3>
+        <h3 className="font-semibold text-gray-800 text-sm">
+          Payment Tracking
+        </h3>
         {paymentInfo.remainingBalance > 0 && (
           <button
             onClick={onRecordPayment}
@@ -30,22 +32,31 @@ export default function PaymentTrackingSection({
           <div>
             <p className="text-xs text-gray-500 mb-1">Total Amount</p>
             <p className="text-lg font-bold text-green-600">
-              R{invoice.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+              R
+              {invoice.totalAmount.toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+              })}
             </p>
           </div>
           <div>
             <p className="text-xs text-gray-500 mb-1">Total Paid</p>
             <p className="text-lg font-bold text-blue-600">
-              R{paymentInfo.totalPaid.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+              R
+              {paymentInfo.totalPaid.toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+              })}
             </p>
             {(() => {
               const totalExcess = (paymentInfo.payments || []).reduce(
                 (sum, payment) => sum + (payment.excessAmount || 0),
-                0
+                0,
               );
               return totalExcess > 0 ? (
                 <p className="text-xs text-blue-500 mt-0.5">
-                  Extra: R{totalExcess.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  Extra: R
+                  {totalExcess.toLocaleString("en-US", {
+                    minimumFractionDigits: 2,
+                  })}
                 </p>
               ) : null;
             })()}
@@ -54,10 +65,13 @@ export default function PaymentTrackingSection({
             <p className="text-xs text-gray-500 mb-1">Remaining Balance</p>
             <p
               className={`text-lg font-bold ${
-                paymentInfo.remainingBalance > 0 ? "text-red-600" : "text-green-600"
+                paymentInfo.remainingBalance > 0
+                  ? "text-red-600"
+                  : "text-green-600"
               }`}
             >
-              R{paymentInfo.remainingBalance.toLocaleString("en-US", {
+              R
+              {paymentInfo.remainingBalance.toLocaleString("en-US", {
                 minimumFractionDigits: 2,
               })}
             </p>
@@ -67,13 +81,18 @@ export default function PaymentTrackingSection({
         {/* Payment Status */}
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500">Status:</span>
-          {getPaymentStatusBadge(paymentInfo.paymentStatus, paymentInfo.remainingBalance)}
+          {getPaymentStatusBadge(
+            paymentInfo.paymentStatus,
+            paymentInfo.remainingBalance,
+          )}
         </div>
 
         {/* Payment History */}
         {paymentInfo.payments.length > 0 && (
           <div>
-            <h4 className="text-sm font-semibold text-gray-700 mb-2">Payment History</h4>
+            <h4 className="text-sm font-semibold text-gray-700 mb-2">
+              Payment History
+            </h4>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 text-sm">
                 <thead className="bg-gray-50">
@@ -103,26 +122,30 @@ export default function PaymentTrackingSection({
                       </td>
                       <td className="px-3 py-2 text-gray-600 text-xs">
                         {payment.paymentMethod || "Cash"}
-                        {payment.paymentMethod === "Bank" && payment.accountInfo && (
-                          <span className="block text-gray-500 text-xs mt-0.5">
-                            {payment.accountInfo}
-                          </span>
-                        )}
+                        {payment.paymentMethod === "Bank" &&
+                          payment.accountInfo && (
+                            <span className="block text-gray-500 text-xs mt-0.5">
+                              {payment.accountInfo}
+                            </span>
+                          )}
                       </td>
                       <td className="px-3 py-2 text-gray-600 text-xs">
                         {payment.notes || "-"}
                       </td>
                       <td className="px-3 py-2 text-right">
                         <div className="font-semibold text-green-600">
-                          R{(payment.amount || 0).toLocaleString("en-US", {
+                          R
+                          {(payment.amount || 0).toLocaleString("en-US", {
                             minimumFractionDigits: 2,
                           })}
                         </div>
                         {payment.excessAmount && payment.excessAmount > 0 && (
                           <div className="text-xs text-blue-600 mt-0.5">
-                            (Excess: R{payment.excessAmount.toLocaleString("en-US", {
+                            (Excess: R
+                            {payment.excessAmount.toLocaleString("en-US", {
                               minimumFractionDigits: 2,
-                            })} → Credit)
+                            })}{" "}
+                            → Credit)
                           </div>
                         )}
                       </td>
@@ -130,7 +153,9 @@ export default function PaymentTrackingSection({
                         <button
                           onClick={() => {
                             if (
-                              confirm("Are you sure you want to delete this payment?")
+                              confirm(
+                                "Are you sure you want to delete this payment?",
+                              )
                             ) {
                               onDeletePayment(invoice._id, payment._id);
                             }

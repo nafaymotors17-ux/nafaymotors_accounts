@@ -76,6 +76,7 @@ export default function SimpleCarriersTable({
   isSuperAdmin = false,
   loading = false,
   onSelectedTripsChange,
+  currentUser,
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -530,6 +531,7 @@ export default function SimpleCarriersTable({
                       companies={companies}
                       users={users}
                       toggleActiveMutation={toggleActiveMutation}
+                      currentUser={currentUser}
                     />
                   );
                 })}
@@ -582,6 +584,7 @@ function CarrierCarsRow({
   companies,
   users,
   toggleActiveMutation,
+  currentUser,
 }) {
   const carrierIdStr = carrier._id.toString();
   const isToggling = toggleActiveMutation.isPending;
@@ -754,14 +757,16 @@ function CarrierCarsRow({
             >
               <Edit className="w-3.5 h-3.5" />
             </button>
-            {isSuperAdmin && (
+            {(isSuperAdmin ||
+              carrier.userId?.toString() === currentUser?.userId ||
+              carrier.userId === currentUser?.userId) && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   onDelete(carrier._id, carrier.tripNumber || carrier.name);
                 }}
                 className="text-red-600 hover:text-red-800"
-                title="Delete Trip (Super Admin Only)"
+                title="Delete Trip"
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>

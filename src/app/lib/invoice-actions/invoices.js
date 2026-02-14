@@ -8,7 +8,10 @@ import Carrier from "../models/Carrier";
 import Company from "../models/Company";
 import { getSession } from "../auth/getSession";
 import mongoose from "mongoose";
-import { updateCompanyCredit, updateCompanyDueBalance } from "./company-balances";
+import {
+  updateCompanyCredit,
+  updateCompanyDueBalance,
+} from "./company-balances";
 
 // Generate unique invoice number (format: INV-YYYYMMDD-XXX)
 async function generateInvoiceNumber(maxRetries = 10) {
@@ -21,7 +24,9 @@ async function generateInvoiceNumber(maxRetries = 10) {
 
   // Find the highest number for today
   const todayInvoices = await Invoice.find({
-    invoiceNumber: { $regex: `^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}` },
+    invoiceNumber: {
+      $regex: `^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+    },
   })
     .sort({ invoiceNumber: -1 })
     .limit(1)
@@ -47,7 +52,7 @@ async function generateInvoiceNumber(maxRetries = 10) {
 
     // If it exists, wait a bit before trying next sequence
     if (attempt < maxRetries - 1) {
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }
 
@@ -68,7 +73,9 @@ export async function createInvoice(invoiceData) {
     const invoiceNumber = await generateInvoiceNumber();
 
     // Invoice date
-    const invoiceDate = invoiceData.invoiceDate ? new Date(invoiceData.invoiceDate) : new Date();
+    const invoiceDate = invoiceData.invoiceDate
+      ? new Date(invoiceData.invoiceDate)
+      : new Date();
 
     // Extract trip information from cars
     const carIds = invoiceData.carIds || [];
@@ -76,7 +83,7 @@ export async function createInvoice(invoiceData) {
     const tripIdsSet = new Set();
     const tripDatesSet = new Set();
     const truckNumbersMap = new Map(); // Map tripNumber to truckNumber
-    
+
     if (carIds.length > 0) {
       // Fetch cars with their carrier and truck information
       const cars = await Car.find({ _id: { $in: carIds } })
@@ -86,10 +93,10 @@ export async function createInvoice(invoiceData) {
           populate: {
             path: "truck",
             select: "number",
-          }
+          },
         })
         .lean();
-      
+
       cars.forEach((car) => {
         if (car.carrier) {
           // Only track trips (not companies)
@@ -103,17 +110,20 @@ export async function createInvoice(invoiceData) {
             }
             // Store truck number for this trip
             if (car.carrier.truck && car.carrier.truck.number) {
-              truckNumbersMap.set(car.carrier.tripNumber, car.carrier.truck.number);
+              truckNumbersMap.set(
+                car.carrier.tripNumber,
+                car.carrier.truck.number,
+              );
             }
           }
         }
       });
     }
-    
+
     // Create truckNumbers array matching tripNumbers order
-    const truckNumbers = Array.from(tripNumbersSet).map(tripNumber => 
-      truckNumbersMap.get(tripNumber) || null
-    ).filter(num => num !== null);
+    const truckNumbers = Array.from(tripNumbersSet)
+      .map((tripNumber) => truckNumbersMap.get(tripNumber) || null)
+      .filter((num) => num !== null);
 
     const invoice = new Invoice({
       invoiceNumber,
@@ -132,21 +142,28 @@ export async function createInvoice(invoiceData) {
       descriptions: invoiceData.descriptions || [],
       isActive: invoiceData.isActive || "",
       tripNumbers: Array.from(tripNumbersSet),
-      tripIds: Array.from(tripIdsSet).map(id => new mongoose.Types.ObjectId(id)),
-      tripDates: Array.from(tripDatesSet).map(dateStr => new Date(dateStr)),
+      tripIds: Array.from(tripIdsSet).map(
+        (id) => new mongoose.Types.ObjectId(id),
+      ),
+      tripDates: Array.from(tripDatesSet).map((dateStr) => new Date(dateStr)),
       truckNumbers: truckNumbers,
       payments: [], // Initialize empty payments array
       paymentStatus: "unpaid", // Initialize as unpaid
     });
 
     await invoice.save();
-    
+
     // Add invoice amount to company's due balance
     const companyName = invoiceData.clientCompanyName?.toUpperCase().trim();
     if (companyName) {
-      await updateCompanyDueBalance(companyName, invoice.totalAmount, session.userId, session.role === "super_admin");
+      await updateCompanyDueBalance(
+        companyName,
+        invoice.totalAmount,
+        session.userId,
+        session.role === "super_admin",
+      );
     }
-    
+
     revalidatePath("/invoices");
     revalidatePath("/companies");
 
@@ -156,7 +173,10 @@ export async function createInvoice(invoiceData) {
     };
   } catch (error) {
     // Handle duplicate invoice number error specifically
-    if (error.code === 11000 || (error.name === 'MongoServerError' && error.code === 11000)) {
+    if (
+      error.code === 11000 ||
+      (error.name === "MongoServerError" && error.code === 11000)
+    ) {
       // Duplicate key error - try to regenerate invoice number and retry once
       if (error.keyPattern && error.keyPattern.invoiceNumber) {
         try {
@@ -167,19 +187,21 @@ export async function createInvoice(invoiceData) {
 
           // Regenerate invoice number
           const newInvoiceNumber = await generateInvoiceNumber();
-          
+
           // Recreate invoice data
-          const invoiceDate = invoiceData.invoiceDate ? new Date(invoiceData.invoiceDate) : new Date();
-          
+          const invoiceDate = invoiceData.invoiceDate
+            ? new Date(invoiceData.invoiceDate)
+            : new Date();
+
           const carIds = invoiceData.carIds || [];
           const tripNumbersSet = new Set();
           const tripDatesSet = new Set();
-          
+
           if (carIds.length > 0) {
             const cars = await Car.find({ _id: { $in: carIds } })
-              .populate("carrier", "tripNumber name type date")                      
+              .populate("carrier", "tripNumber name type date")
               .lean();
-            
+
             cars.forEach((car) => {
               if (car.carrier) {
                 if (car.carrier.type === "trip" && car.carrier.tripNumber) {
@@ -209,40 +231,53 @@ export async function createInvoice(invoiceData) {
             descriptions: invoiceData.descriptions || [],
             isActive: invoiceData.isActive || "",
             tripNumbers: Array.from(tripNumbersSet),
-            tripDates: Array.from(tripDatesSet).map(dateStr => new Date(dateStr)),
+            tripDates: Array.from(tripDatesSet).map(
+              (dateStr) => new Date(dateStr),
+            ),
             payments: [],
             paymentStatus: "unpaid",
           });
 
           await retryInvoice.save();
-          
+
           // Add invoice amount to company's due balance
-          const companyName = invoiceData.clientCompanyName?.toUpperCase().trim();
+          const companyName = invoiceData.clientCompanyName
+            ?.toUpperCase()
+            .trim();
           if (companyName) {
-            await updateCompanyDueBalance(companyName, retryInvoice.totalAmount, session.userId, session.role === "super_admin");
+            await updateCompanyDueBalance(
+              companyName,
+              retryInvoice.totalAmount,
+              session.userId,
+              session.role === "super_admin",
+            );
           }
-          
+
           revalidatePath("/invoices");
           revalidatePath("/companies");
-          
+
           return {
             success: true,
             invoice: JSON.parse(JSON.stringify(retryInvoice)),
           };
         } catch (retryError) {
-          console.error("Error retrying invoice creation with new number:", retryError);
-          return { 
-            success: false, 
-            error: "Failed to create invoice: Unable to generate unique invoice number. Please try again." 
+          console.error(
+            "Error retrying invoice creation with new number:",
+            retryError,
+          );
+          return {
+            success: false,
+            error:
+              "Failed to create invoice: Unable to generate unique invoice number. Please try again.",
           };
         }
       }
     }
-    
+
     console.error("Error creating invoice:", error);
-    return { 
-      success: false, 
-      error: error.message || "Failed to create invoice" 
+    return {
+      success: false,
+      error: error.message || "Failed to create invoice",
     };
   }
 }
@@ -252,7 +287,17 @@ export async function getInvoices(searchParams = {}) {
   try {
     const session = await getSession();
     if (!session) {
-      return { invoices: [], pagination: { page: 1, limit: 10, total: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false } };
+      return {
+        invoices: [],
+        pagination: {
+          page: 1,
+          limit: 10,
+          total: 0,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPrevPage: false,
+        },
+      };
     }
 
     const page = parseInt(searchParams.page) || 1;
@@ -272,7 +317,10 @@ export async function getInvoices(searchParams = {}) {
 
     // Filter by company (client company name)
     if (company) {
-      query.clientCompanyName = { $regex: `^${company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: "i" };
+      query.clientCompanyName = {
+        $regex: `^${company.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+        $options: "i",
+      };
     }
 
     // Filter by payment status
@@ -288,7 +336,9 @@ export async function getInvoices(searchParams = {}) {
       ];
       // Only add client company to search if company filter is not set
       if (!company) {
-        searchConditions.push({ clientCompanyName: { $regex: search, $options: "i" } });
+        searchConditions.push({
+          clientCompanyName: { $regex: search, $options: "i" },
+        });
       }
       query.$or = searchConditions;
     }
@@ -299,18 +349,26 @@ export async function getInvoices(searchParams = {}) {
       .skip(skip)
       .limit(limit)
       .lean();
-    
+
     // Populate missing tripIds for old invoices
     for (const invoice of invoices) {
-      if (invoice.tripNumbers && invoice.tripNumbers.length > 0 && (!invoice.tripIds || invoice.tripIds.length === 0)) {
+      if (
+        invoice.tripNumbers &&
+        invoice.tripNumbers.length > 0 &&
+        (!invoice.tripIds || invoice.tripIds.length === 0)
+      ) {
         // Look up trip IDs from trip numbers
         const tripIds = [];
         for (const tripNumber of invoice.tripNumbers) {
-          const carrier = await Carrier.findOne({ 
+          const carrier = await Carrier.findOne({
             tripNumber: tripNumber,
             type: "trip",
-            ...(session.role !== "super_admin" ? { userId: new mongoose.Types.ObjectId(session.userId) } : {})
-          }).select("_id").lean();
+            ...(session.role !== "super_admin"
+              ? { userId: new mongoose.Types.ObjectId(session.userId) }
+              : {}),
+          })
+            .select("_id")
+            .lean();
           if (carrier) {
             tripIds.push(carrier._id.toString());
           }
@@ -318,13 +376,15 @@ export async function getInvoices(searchParams = {}) {
         if (tripIds.length > 0) {
           invoice.tripIds = tripIds; // Already strings from toString()
           // Optionally update the invoice in database (async, don't wait)
-          Invoice.findByIdAndUpdate(invoice._id, { tripIds: tripIds.map(id => new mongoose.Types.ObjectId(id)) }).catch(err => {
+          Invoice.findByIdAndUpdate(invoice._id, {
+            tripIds: tripIds.map((id) => new mongoose.Types.ObjectId(id)),
+          }).catch((err) => {
             console.error("Error updating invoice tripIds:", err);
           });
         }
       }
     }
-    
+
     const total = await Invoice.countDocuments(query);
 
     // Calculate totals using aggregation (with error handling)
@@ -346,14 +406,14 @@ export async function getInvoices(searchParams = {}) {
                     {
                       $subtract: [
                         { $ifNull: ["$$this.amount", 0] },
-                        { $ifNull: ["$$this.excessAmount", 0] }
-                      ]
-                    }
-                  ]
-                }
-              }
-            }
-          }
+                        { $ifNull: ["$$this.excessAmount", 0] },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
         },
         {
           $group: {
@@ -362,13 +422,13 @@ export async function getInvoices(searchParams = {}) {
             totalPaid: { $sum: "$totalPaid" },
             totalBalance: {
               $sum: {
-                $subtract: ["$totalAmount", "$totalPaid"]
-              }
-            }
-          }
-        }
+                $subtract: ["$totalAmount", "$totalPaid"],
+              },
+            },
+          },
+        },
       ]);
-      
+
       if (totalsResult.length > 0) {
         totals = totalsResult[0];
       }
@@ -395,7 +455,14 @@ export async function getInvoices(searchParams = {}) {
     console.error("Error fetching invoices:", error);
     return {
       invoices: [],
-      pagination: { page: 1, limit: 10, total: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false },
+      pagination: {
+        page: 1,
+        limit: 10,
+        total: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPrevPage: false,
+      },
       error: error.message || "Failed to fetch invoices",
     };
   }
@@ -454,26 +521,32 @@ export async function deleteInvoice(invoiceId) {
 
     // Calculate total paid on this invoice (amount - excessAmount for each payment)
     const totalPaid = (invoice.payments || []).reduce(
-      (sum, payment) => sum + ((payment.amount || 0) - (payment.excessAmount || 0)),
-      0
+      (sum, payment) =>
+        sum + ((payment.amount || 0) - (payment.excessAmount || 0)),
+      0,
     );
-    
+
     // Calculate remaining balance (what's still due)
     const remainingBalance = invoice.totalAmount - totalPaid;
-    
+
     // Update company balances
     const companyName = invoice.clientCompanyName?.toUpperCase().trim();
     if (companyName) {
       // Subtract the remaining balance from dueBalance (reverses invoice creation, accounting for payments)
       // If invoice was overpaid (remainingBalance < 0), we don't subtract anything from dueBalance
       if (remainingBalance > 0) {
-        await updateCompanyDueBalance(companyName, -remainingBalance, session.userId, session.role === "super_admin");
+        await updateCompanyDueBalance(
+          companyName,
+          -remainingBalance,
+          session.userId,
+          session.role === "super_admin",
+        );
       }
-      
+
       // Reverse any excess payments that were added to credit
       const totalExcess = (invoice.payments || []).reduce(
         (sum, payment) => sum + (payment.excessAmount || 0),
-        0
+        0,
       );
       if (totalExcess > 0) {
         await updateCompanyCredit(companyName, -totalExcess);
@@ -509,7 +582,10 @@ export async function recordPayment(invoiceId, paymentData) {
     const sessionUserId = session.userId?.toString();
 
     if (session.role !== "super_admin" && invoiceUserId !== sessionUserId) {
-      return { success: false, error: "Unauthorized to record payment for this invoice" };
+      return {
+        success: false,
+        error: "Unauthorized to record payment for this invoice",
+      };
     }
 
     // Validate payment amount
@@ -521,7 +597,7 @@ export async function recordPayment(invoiceId, paymentData) {
     // Calculate total paid so far
     const totalPaid = (invoice.payments || []).reduce(
       (sum, payment) => sum + (payment.amount || 0),
-      0
+      0,
     );
 
     // Calculate remaining balance
@@ -538,10 +614,16 @@ export async function recordPayment(invoiceId, paymentData) {
     const newPayment = {
       amount: paymentAmount, // Full payment amount received
       excessAmount: excessAmount, // Amount that exceeds invoice balance
-      paymentDate: paymentData.paymentDate ? new Date(paymentData.paymentDate) : new Date(),
+      paymentDate: paymentData.paymentDate
+        ? new Date(paymentData.paymentDate)
+        : new Date(),
       paymentMethod: paymentData.paymentMethod || "Cash",
       accountInfo: paymentData.accountInfo || "",
-      notes: paymentData.notes || (excessAmount > 0 ? `Full payment: R${paymentAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} | Applied: R${(paymentAmount - excessAmount).toLocaleString("en-US", { minimumFractionDigits: 2 })} | Excess (added to credit): R${excessAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}` : ""),
+      notes:
+        paymentData.notes ||
+        (excessAmount > 0
+          ? `Full payment: R${paymentAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} | Applied: R${(paymentAmount - excessAmount).toLocaleString("en-US", { minimumFractionDigits: 2 })} | Excess (added to credit): R${excessAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}`
+          : ""),
       recordedBy: session.userId,
     };
 
@@ -556,12 +638,17 @@ export async function recordPayment(invoiceId, paymentData) {
     if (companyName) {
       // Calculate amount actually applied to invoice (payment - excess)
       const appliedAmount = paymentAmount - excessAmount;
-      
+
       // Deduct applied amount from company's due balance
       if (appliedAmount > 0) {
-        await updateCompanyDueBalance(companyName, -appliedAmount, session.userId, session.role === "super_admin");
+        await updateCompanyDueBalance(
+          companyName,
+          -appliedAmount,
+          session.userId,
+          session.role === "super_admin",
+        );
       }
-      
+
       // If there's excess payment, add to company credit
       if (excessAmount > 0) {
         await updateCompanyCredit(companyName, excessAmount);
@@ -570,13 +657,14 @@ export async function recordPayment(invoiceId, paymentData) {
 
     revalidatePath("/invoices");
     revalidatePath("/companies");
-    
+
     return {
       success: true,
       invoice: JSON.parse(JSON.stringify(invoice)),
-      message: excessAmount > 0 
-        ? `Payment recorded. R${excessAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} added to company credit.`
-        : "Payment recorded successfully",
+      message:
+        excessAmount > 0
+          ? `Payment recorded. R${excessAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} added to company credit.`
+          : "Payment recorded successfully",
     };
   } catch (error) {
     console.error("Error recording payment:", error);
@@ -602,25 +690,34 @@ export async function deletePayment(invoiceId, paymentId) {
     const sessionUserId = session.userId?.toString();
 
     if (session.role !== "super_admin" && invoiceUserId !== sessionUserId) {
-      return { success: false, error: "Unauthorized to delete payment for this invoice" };
+      return {
+        success: false,
+        error: "Unauthorized to delete payment for this invoice",
+      };
     }
 
     // Find the payment being deleted to check for excess amount
     const paymentToDelete = (invoice.payments || []).find(
-      (payment) => payment._id.toString() === paymentId
+      (payment) => payment._id.toString() === paymentId,
     );
 
     // Update company balances to reverse the payment
     const companyName = invoice.clientCompanyName?.toUpperCase().trim();
     if (companyName && paymentToDelete) {
       // Calculate amount that was applied to invoice (payment - excess)
-      const appliedAmount = (paymentToDelete.amount || 0) - (paymentToDelete.excessAmount || 0);
-      
+      const appliedAmount =
+        (paymentToDelete.amount || 0) - (paymentToDelete.excessAmount || 0);
+
       // Add back the applied amount to company's due balance
       if (appliedAmount > 0) {
-        await updateCompanyDueBalance(companyName, appliedAmount, session.userId, session.role === "super_admin");
+        await updateCompanyDueBalance(
+          companyName,
+          appliedAmount,
+          session.userId,
+          session.role === "super_admin",
+        );
       }
-      
+
       // If payment had excess amount, subtract it from company credit
       if (paymentToDelete.excessAmount > 0) {
         await updateCompanyCredit(companyName, -paymentToDelete.excessAmount);
@@ -629,7 +726,7 @@ export async function deletePayment(invoiceId, paymentId) {
 
     // Remove payment
     invoice.payments = (invoice.payments || []).filter(
-      (payment) => payment._id.toString() !== paymentId
+      (payment) => payment._id.toString() !== paymentId,
     );
 
     // Save invoice (pre-save hook will update paymentStatus)
@@ -685,7 +782,9 @@ export async function getCompanyBreakdown() {
                     $reduce: {
                       input: { $ifNull: ["$payments", []] },
                       initialValue: 0,
-                      in: { $add: ["$$value", { $ifNull: ["$$this.amount", 0] }] },
+                      in: {
+                        $add: ["$$value", { $ifNull: ["$$this.amount", 0] }],
+                      },
                     },
                   },
                 },
@@ -694,17 +793,23 @@ export async function getCompanyBreakdown() {
                   $sum: { $cond: [{ $eq: ["$paymentStatus", "paid"] }, 1, 0] },
                 },
                 unpaidInvoices: {
-                  $sum: { $cond: [{ $eq: ["$paymentStatus", "unpaid"] }, 1, 0] },
+                  $sum: {
+                    $cond: [{ $eq: ["$paymentStatus", "unpaid"] }, 1, 0],
+                  },
                 },
                 partialInvoices: {
-                  $sum: { $cond: [{ $eq: ["$paymentStatus", "partial"] }, 1, 0] },
+                  $sum: {
+                    $cond: [{ $eq: ["$paymentStatus", "partial"] }, 1, 0],
+                  },
                 },
               },
             },
             // Calculate outstanding balance
             {
               $addFields: {
-                outstandingBalance: { $subtract: ["$totalAmount", "$totalPaid"] },
+                outstandingBalance: {
+                  $subtract: ["$totalAmount", "$totalPaid"],
+                },
               },
             },
             // Rename _id to companyName
@@ -739,7 +844,9 @@ export async function getCompanyBreakdown() {
                     $reduce: {
                       input: { $ifNull: ["$payments", []] },
                       initialValue: 0,
-                      in: { $add: ["$$value", { $ifNull: ["$$this.amount", 0] }] },
+                      in: {
+                        $add: ["$$value", { $ifNull: ["$$this.amount", 0] }],
+                      },
                     },
                   },
                 },
@@ -748,10 +855,14 @@ export async function getCompanyBreakdown() {
                   $sum: { $cond: [{ $eq: ["$paymentStatus", "paid"] }, 1, 0] },
                 },
                 unpaidInvoices: {
-                  $sum: { $cond: [{ $eq: ["$paymentStatus", "unpaid"] }, 1, 0] },
+                  $sum: {
+                    $cond: [{ $eq: ["$paymentStatus", "unpaid"] }, 1, 0],
+                  },
                 },
                 partialInvoices: {
-                  $sum: { $cond: [{ $eq: ["$paymentStatus", "partial"] }, 1, 0] },
+                  $sum: {
+                    $cond: [{ $eq: ["$paymentStatus", "partial"] }, 1, 0],
+                  },
                 },
               },
             },
@@ -763,7 +874,9 @@ export async function getCompanyBreakdown() {
                 totalInvoices: 1,
                 totalAmount: 1,
                 totalPaid: 1,
-                outstandingBalance: { $subtract: ["$totalAmount", "$totalPaid"] },
+                outstandingBalance: {
+                  $subtract: ["$totalAmount", "$totalPaid"],
+                },
                 paidInvoices: 1,
                 unpaidInvoices: 1,
                 partialInvoices: 1,

@@ -1036,11 +1036,6 @@ export async function deleteCarrier(carrierId) {
       return { error: "Unauthorized" };
     }
 
-    // Only super admin can delete carriers
-    if (session.role !== "super_admin") {
-      return { error: "Only super admin can delete trips" };
-    }
-
     // Convert carrierId to ObjectId if it's a string
     let carrierIdObj = carrierId;
     if (
@@ -1050,8 +1045,22 @@ export async function deleteCarrier(carrierId) {
       carrierIdObj = new mongoose.Types.ObjectId(carrierId);
     }
 
-    // Find the carrier first to verify it exists and get truck info
+    // Find the carrier first to check ownership
     const carrier = await Carrier.findById(carrierIdObj).populate("truck");
+    if (!carrier) {
+      return { error: "Carrier trip not found" };
+    }
+
+    // Allow super admin or trip owner to delete
+    if (
+      session.role !== "super_admin" &&
+      carrier.userId.toString() !== session.userId
+    ) {
+      return { error: "You can only delete your own trips" };
+    }
+
+    // Find the carrier again (if we haven't already in the permission check above)
+    // This is already done above, so we just use the existing carrier object
     if (!carrier) {
       return { error: "Carrier trip not found" };
     }

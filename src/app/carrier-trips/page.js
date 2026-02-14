@@ -175,6 +175,7 @@ export default function CarriersPage() {
           isSuperAdmin={isSuperAdmin}
           loading={loading}
           onSelectedTripsChange={setSelectedTripIds}
+          currentUser={user}
         />
       </div>
     </div>
