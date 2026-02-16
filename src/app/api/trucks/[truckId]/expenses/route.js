@@ -9,7 +9,14 @@ import mongoose from "mongoose";
 export async function GET(request, { params }) {
   await connectDB();
   try {
-    const session = await getSession();
+    const sessionHeader = request.headers.get("x-session");
+    let session = null;
+    if (sessionHeader) {
+      try {
+        session = JSON.parse(sessionHeader);
+      } catch (_) {}
+    }
+    session = await getSession(session);
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -27,7 +34,10 @@ export async function GET(request, { params }) {
     }
 
     // Check permissions
-    if (session.role !== "super_admin" && truck.userId.toString() !== session.userId) {
+    if (
+      session.role !== "super_admin" &&
+      truck.userId.toString() !== session.userId
+    ) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
@@ -45,11 +55,12 @@ export async function GET(request, { params }) {
 
     // Build query
     const query = { truck: truckObjectId };
-    
-    console.log("Fetching expenses for truck:", truckId, "ObjectId:", truckObjectId.toString());
 
     // Filter by category
-    if (category && ["maintenance", "fuel", "tyre", "others"].includes(category)) {
+    if (
+      category &&
+      ["maintenance", "fuel", "tyre", "others"].includes(category)
+    ) {
       query.category = category;
     }
 
@@ -68,25 +79,68 @@ export async function GET(request, { params }) {
       }
     }
 
-    // Use the same query for summaries (respects all filters: category, startDate, endDate)
-    // This ensures summaries are calculated for ALL filtered data, not just current page
-    const summaryQuery = { ...query }; // Use the same query that respects all filters
-
-    // Use aggregation pipeline for efficient summary calculation on ALL filtered expenses
-    const summaryPipeline = [
-      { $match: summaryQuery },
+    // Single aggregation: summary, paginated expenses, and count in one round-trip
+    const [facetResult] = await Expense.aggregate([
+      { $match: query },
       {
-        $group: {
-          _id: "$category",
-          totalAmount: { $sum: "$amount" },
-          totalLiters: { $sum: { $ifNull: ["$liters", 0] } }
-        }
-      }
-    ];
+        $facet: {
+          summary: [
+            {
+              $group: {
+                _id: "$category",
+                totalAmount: { $sum: "$amount" },
+                totalLiters: { $sum: { $ifNull: ["$liters", 0] } },
+              },
+            },
+          ],
+          expenses: [
+            { $sort: { date: -1, createdAt: -1 } },
+            { $skip: skip },
+            { $limit: limit },
+            {
+              $lookup: {
+                from: "carriers",
+                localField: "carrier",
+                foreignField: "_id",
+                as: "carrier",
+              },
+            },
+            {
+              $unwind: {
+                path: "$carrier",
+                preserveNullAndEmptyArrays: true,
+              },
+            },
+            {
+              $project: {
+                _id: 1,
+                truck: 1,
+                category: 1,
+                amount: 1,
+                details: 1,
+                liters: 1,
+                pricePerLiter: 1,
+                tyreNumber: 1,
+                tyreInfo: 1,
+                meterReading: 1,
+                date: 1,
+                createdAt: 1,
+                updatedAt: 1,
+                "carrier._id": 1,
+                "carrier.tripNumber": 1,
+                "carrier.name": 1,
+              },
+            },
+          ],
+          count: [{ $count: "total" }],
+        },
+      },
+    ]);
 
-    const summaryResults = await Expense.aggregate(summaryPipeline);
+    const summaryResults = facetResult?.summary || [];
+    const expenses = facetResult?.expenses || [];
+    const total = facetResult?.count?.[0]?.total ?? 0;
 
-    // Calculate summaries from aggregation results
     const summaries = {
       totalExpense: 0,
       totalFuel: 0,
@@ -94,20 +148,13 @@ export async function GET(request, { params }) {
       totalMaintenance: 0,
       totalTyre: 0,
       totalOthers: 0,
-      byCategory: {
-        maintenance: 0,
-        fuel: 0,
-        tyre: 0,
-        others: 0,
-      }
+      byCategory: { maintenance: 0, fuel: 0, tyre: 0, others: 0 },
     };
-
-    summaryResults.forEach(result => {
+    summaryResults.forEach((result) => {
       const category = result._id;
       const amount = result.totalAmount || 0;
       summaries.totalExpense += amount;
       summaries.byCategory[category] = amount;
-
       if (category === "fuel") {
         summaries.totalFuel = amount;
         summaries.totalFuelLiters = result.totalLiters || 0;
@@ -120,61 +167,8 @@ export async function GET(request, { params }) {
       }
     });
 
-    // Get expenses with pagination using aggregation for better performance
-    const expensesPipeline = [
-      { $match: query },
-      { $sort: { date: -1, createdAt: -1 } },
-      { $skip: skip },
-      { $limit: limit },
-      {
-        $lookup: {
-          from: "carriers",
-          localField: "carrier",
-          foreignField: "_id",
-          as: "carrier",
-        }
-      },
-      {
-        $unwind: {
-          path: "$carrier",
-          preserveNullAndEmptyArrays: true,
-        }
-      },
-      {
-        $project: {
-          _id: 1,
-          truck: 1,
-          category: 1,
-          amount: 1,
-          details: 1,
-          liters: 1,
-          pricePerLiter: 1,
-          tyreNumber: 1,
-          tyreInfo: 1,
-          meterReading: 1,
-          date: 1,
-          createdAt: 1,
-          updatedAt: 1,
-          "carrier._id": 1,
-          "carrier.tripNumber": 1,
-          "carrier.name": 1,
-        }
-      }
-    ];
-
-    const [expenses, totalResult] = await Promise.all([
-      Expense.aggregate(expensesPipeline),
-      Expense.countDocuments(query)
-    ]);
-
-    console.log("Expenses found:", expenses?.length || 0, "Total:", totalResult);
-
-    const total = totalResult || 0;
-
-    const totalPages = Math.ceil(total / limit) || 1;
-
     // Convert ObjectIds to strings for JSON serialization
-    const serializedExpenses = (expenses || []).map(expense => {
+    const serializedExpenses = (expenses || []).map((expense) => {
       const serialized = {
         _id: expense._id?.toString() || expense._id,
         category: expense.category,
@@ -190,7 +184,7 @@ export async function GET(request, { params }) {
         updatedAt: expense.updatedAt,
         truck: expense.truck?.toString() || expense.truck,
       };
-      
+
       // Handle carrier if it exists
       if (expense.carrier && expense.carrier._id) {
         serialized.carrier = {
@@ -201,18 +195,19 @@ export async function GET(request, { params }) {
       } else {
         serialized.carrier = null;
       }
-      
+
       return serialized;
     });
 
+    const totalPagesVal = Math.ceil(total / limit) || 1;
     return NextResponse.json({
       expenses: serializedExpenses,
       pagination: {
         page,
         limit,
         total,
-        totalPages,
-        hasNextPage: page < totalPages,
+        totalPages: totalPagesVal,
+        hasNextPage: page < totalPagesVal,
         hasPrevPage: page > 1,
       },
       summaries,
@@ -221,7 +216,7 @@ export async function GET(request, { params }) {
     console.error("Error fetching truck expenses:", error);
     return NextResponse.json(
       { error: "Failed to fetch expenses" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -230,7 +225,14 @@ export async function GET(request, { params }) {
 export async function POST(request, { params }) {
   await connectDB();
   try {
-    const session = await getSession();
+    const sessionHeader = request.headers.get("x-session");
+    let session = null;
+    if (sessionHeader) {
+      try {
+        session = JSON.parse(sessionHeader);
+      } catch (_) {}
+    }
+    session = await getSession(session);
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -248,18 +250,31 @@ export async function POST(request, { params }) {
     }
 
     // Check permissions
-    if (session.role !== "super_admin" && truck.userId.toString() !== session.userId) {
+    if (
+      session.role !== "super_admin" &&
+      truck.userId.toString() !== session.userId
+    ) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
     const body = await request.json();
-    const { category, amount, details, liters, pricePerLiter, date, tyreNumber, tyreInfo, meterReading } = body;
+    const {
+      category,
+      amount,
+      details,
+      liters,
+      pricePerLiter,
+      date,
+      tyreNumber,
+      tyreInfo,
+      meterReading,
+    } = body;
 
     // Validate required fields
     if (!category) {
       return NextResponse.json(
         { error: "Category is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -267,8 +282,11 @@ export async function POST(request, { params }) {
     const validCategories = ["maintenance", "fuel", "tyre", "others"];
     if (!validCategories.includes(category)) {
       return NextResponse.json(
-        { error: "Invalid category. Only maintenance, fuel, tyre, and others are allowed for trucks." },
-        { status: 400 }
+        {
+          error:
+            "Invalid category. Only maintenance, fuel, tyre, and others are allowed for trucks.",
+        },
+        { status: 400 },
       );
     }
 
@@ -284,24 +302,30 @@ export async function POST(request, { params }) {
       } else {
         // Neither amount nor liters/pricePerLiter provided
         return NextResponse.json(
-          { error: "For fuel expenses, either provide amount or both liters and pricePerLiter" },
-          { status: 400 }
+          {
+            error:
+              "For fuel expenses, either provide amount or both liters and pricePerLiter",
+          },
+          { status: 400 },
         );
       }
-      
+
       // Validate final amount is positive
       if (!finalAmount || finalAmount <= 0 || isNaN(finalAmount)) {
         return NextResponse.json(
           { error: "Invalid amount. Amount must be greater than 0" },
-          { status: 400 }
+          { status: 400 },
         );
       }
     } else if (category === "tyre") {
       // For tyre expenses, amount is required
       if (!amount || amount === "" || finalAmount <= 0 || isNaN(finalAmount)) {
         return NextResponse.json(
-          { error: "Amount is required for tyre expenses and must be greater than 0" },
-          { status: 400 }
+          {
+            error:
+              "Amount is required for tyre expenses and must be greater than 0",
+          },
+          { status: 400 },
         );
       }
     } else if (category === "maintenance") {
@@ -309,15 +333,18 @@ export async function POST(request, { params }) {
       if (!amount || finalAmount <= 0 || isNaN(finalAmount)) {
         return NextResponse.json(
           { error: "Amount is required for maintenance expenses" },
-          { status: 400 }
+          { status: 400 },
         );
       }
     } else if (category === "others") {
       // For others expenses, amount is required
       if (!amount || finalAmount <= 0 || isNaN(finalAmount)) {
         return NextResponse.json(
-          { error: "Amount is required for other expenses and must be greater than 0" },
-          { status: 400 }
+          {
+            error:
+              "Amount is required for other expenses and must be greater than 0",
+          },
+          { status: 400 },
         );
       }
     }
@@ -332,30 +359,29 @@ export async function POST(request, { params }) {
       amount: finalAmount,
       details: details || "",
       liters: category === "fuel" && liters ? parseFloat(liters) : undefined,
-      pricePerLiter: category === "fuel" && pricePerLiter ? parseFloat(pricePerLiter) : undefined,
-      tyreNumber: category === "tyre" && tyreNumber ? tyreNumber.trim() : undefined,
+      pricePerLiter:
+        category === "fuel" && pricePerLiter
+          ? parseFloat(pricePerLiter)
+          : undefined,
+      tyreNumber:
+        category === "tyre" && tyreNumber ? tyreNumber.trim() : undefined,
       tyreInfo: category === "tyre" && tyreInfo ? tyreInfo.trim() : undefined,
-      meterReading: (category === "maintenance" || category === "tyre") && meterReading ? parseFloat(meterReading) : undefined,
+      meterReading:
+        (category === "maintenance" || category === "tyre") && meterReading
+          ? parseFloat(meterReading)
+          : undefined,
       date: date ? new Date(date) : new Date(),
     });
 
-    console.log("Creating expense:", {
-      category,
-      amount: finalAmount,
-      tyreNumber: category === "tyre" ? tyreNumber : undefined,
-      tyreInfo: category === "tyre" ? tyreInfo : undefined,
-    });
-
     await expense.save();
-    
-    console.log("Expense saved successfully:", expense._id);
 
     // If this is a maintenance expense, update truck's last maintenance and current meter reading
     // Use the meter reading from the expense if provided, otherwise use truck's current meter reading
     if (category === "maintenance") {
-      const maintenanceKm = expense.meterReading || truck.currentMeterReading || 0;
+      const maintenanceKm =
+        expense.meterReading || truck.currentMeterReading || 0;
       const maintenanceDate = date ? new Date(date) : new Date();
-      
+
       // Update truck's last maintenance info and current meter reading
       // Next maintenance will be: lastMaintenanceKm + maintenanceInterval
       await Truck.findByIdAndUpdate(truckId, {
@@ -368,11 +394,9 @@ export async function POST(request, { params }) {
             kmReading: maintenanceKm,
             details: details || "",
             cost: finalAmount,
-          }
-        }
+          },
+        },
       });
-      
-      console.log(`Maintenance updated for truck ${truckId}: Last maintenance at ${maintenanceKm}km, Current meter reading updated to ${maintenanceKm}km, Next maintenance at ${maintenanceKm + (truck.maintenanceInterval || 1000)}km`);
     }
 
     return NextResponse.json({
@@ -384,7 +408,7 @@ export async function POST(request, { params }) {
     console.error("Error stack:", error.stack);
     return NextResponse.json(
       { error: error.message || "Failed to create expense" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

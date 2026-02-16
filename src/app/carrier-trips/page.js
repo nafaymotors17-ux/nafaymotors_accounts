@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { getAllCarriers } from "@/app/lib/carriers-actions/carriers";
 import { getAllCompanies } from "@/app/lib/carriers-actions/companies";
@@ -11,12 +10,15 @@ import SimpleCarriersTable from "./components/SimpleCarriersTable";
 import CompactFilters from "./components/CompactFilters";
 
 export default function CarriersPage() {
-  // UI state for selected trips
   const [selectedTripIds, setSelectedTripIds] = useState([]);
+  const [carriersData, setCarriersData] = useState(null);
+  const [companies, setCompanies] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const searchParams = useSearchParams();
   const { user } = useUser();
 
-  // Build query params from URL
   const queryParams = useMemo(() => {
     const params = {};
     const page = searchParams.get("page");
@@ -28,7 +30,6 @@ export default function CarriersPage() {
     const isActive = searchParams.get("isActive");
     const userId = searchParams.get("userId");
     const globalSearch = searchParams.get("globalSearch");
-
     if (page) params.page = page;
     if (limit) params.limit = limit;
     if (startDate) params.startDate = startDate;
@@ -38,80 +39,79 @@ export default function CarriersPage() {
     if (isActive) params.isActive = isActive;
     if (userId) params.userId = userId;
     if (globalSearch) params.globalSearch = globalSearch;
-
     return params;
   }, [searchParams]);
 
-  // Server data with React Query
-  const { data: carriersData, isLoading: carriersLoading } = useQuery({
-    queryKey: ["carriers", queryParams],
-    queryFn: () => getAllCarriers(queryParams),
-  });
+  const loadCarriers = useCallback(async () => {
+    try {
+      const res = await getAllCarriers(queryParams);
+      setCarriersData(res);
+    } catch (err) {
+      setError(err?.message || "Failed to load carriers");
+      setCarriersData({ carriers: [], pagination: null, totals: null });
+    }
+  }, [queryParams]);
 
-  const { data: companiesData, isLoading: companiesLoading } = useQuery({
-    queryKey: ["companies"],
-    queryFn: getAllCompanies,
-  });
+  const loadCompanies = useCallback(async () => {
+    try {
+      const res = await getAllCompanies();
+      setCompanies(res?.companies || []);
+    } catch {
+      setCompanies([]);
+    }
+  }, []);
 
-  const { data: usersData, isLoading: usersLoading } = useQuery({
-    queryKey: ["users"],
-    queryFn: getAllUsersForSelection,
-    enabled: user?.role === "super_admin",
-  });
+  const loadUsers = useCallback(async () => {
+    if (user?.role !== "super_admin") return;
+    try {
+      const res = await getAllUsersForSelection();
+      setUsers(res?.users || []);
+    } catch {
+      setUsers([]);
+    }
+  }, [user]);
 
-  // Derived values with useMemo
-  const carriers = useMemo(
-    () => carriersData?.carriers || [],
-    [carriersData?.carriers],
-  );
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      getAllCarriers(queryParams).then((res) => !cancelled && setCarriersData(res)),
+      getAllCompanies().then((res) => !cancelled && setCompanies(res?.companies || [])),
+      user?.role === "super_admin"
+        ? getAllUsersForSelection().then((res) => !cancelled && setUsers(res?.users || []))
+        : Promise.resolve(),
+    ])
+      .catch((err) => !cancelled && setError(err?.message || "Failed to load"))
+      .finally(() => !cancelled && setLoading(false));
+    return () => { cancelled = true; };
+  }, [queryParams, user?.userId, user?.role]);
 
-  const companies = useMemo(
-    () => companiesData?.companies || [],
-    [companiesData?.companies],
-  );
-
-  const users = useMemo(() => usersData?.users || [], [usersData?.users]);
-
-  const pagination = useMemo(
-    () => carriersData?.pagination,
-    [carriersData?.pagination],
-  );
-
-  const isSuperAdmin = useMemo(
-    () => user?.role === "super_admin",
-    [user?.role],
-  );
-
-  // Get totals from API (calculated at database level with filters applied)
-  const totals = useMemo(
-    () =>
-      carriersData?.totals || {
-        totalCars: 0,
-        totalAmount: 0,
-        totalExpenses: 0,
-        totalProfit: 0,
-        totalTrips: 0,
-      },
-    [carriersData?.totals],
-  );
-
+  const carriers = carriersData?.carriers || [];
+  const pagination = carriersData?.pagination;
+  const totals = carriersData?.totals || {
+    totalCars: 0,
+    totalAmount: 0,
+    totalExpenses: 0,
+    totalProfit: 0,
+    totalTrips: 0,
+  };
   const totalCars = totals.totalCars;
   const totalAmount = totals.totalAmount;
   const totalExpenses = totals.totalExpenses;
   const totalProfit = totals.totalProfit;
   const totalTrips = totals.totalTrips;
-
-  // Check if company filter is selected
-  const hasCompanyFilter = useMemo(
-    () => !!queryParams.company,
-    [queryParams.company],
-  );
-
-  const loading = carriersLoading || companiesLoading || usersLoading;
+  const hasCompanyFilter = !!queryParams.company;
+  const isSuperAdmin = user?.role === "super_admin";
 
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto px-4 py-8">
+        {error && (
+          <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-red-700">
+            Error loading data: {error}
+          </div>
+        )}
         {/* Summary Cards - Top level stats shown first */}
         <div
           className={`grid grid-cols-1 gap-2 mb-3 ${hasCompanyFilter ? "md:grid-cols-3" : "md:grid-cols-5"}`}
@@ -180,6 +180,7 @@ export default function CarriersPage() {
           loading={loading}
           onSelectedTripsChange={setSelectedTripIds}
           currentUser={user}
+          onRefreshCarriers={loadCarriers}
         />
       </div>
     </div>

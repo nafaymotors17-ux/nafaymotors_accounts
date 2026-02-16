@@ -1,11 +1,11 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { getAllTrucks, createTruck, updateTruck, deleteTruck } from "@/app/lib/carriers-actions/trucks";
 import { getAllDrivers } from "@/app/lib/carriers-actions/drivers";
 import { getAllUsersForSelection } from "@/app/lib/users-actions/users";
 import { useUser } from "@/app/components/UserContext";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Plus, RefreshCw } from "lucide-react";
 import TrucksTable from "./components/TrucksTable";
 import TruckForm from "./components/TruckForm";
@@ -17,31 +17,70 @@ export default function CarriersPage() {
   const [showForm, setShowForm] = useState(false);
   const [sortField, setSortField] = useState(null);
   const [sortDirection, setSortDirection] = useState("asc");
+  const [trucks, setTrucks] = useState([]);
+  const [drivers, setDrivers] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
   const { user, loading: userLoading } = useUser();
-  
-  const queryClient = useQueryClient();
 
-  const { data: trucksData, isLoading, error, refetch: refetchTrucks, isFetching: trucksFetching } = useQuery({
-    queryKey: ["trucks", user?.userId, user?.role],
-    queryFn: () => getAllTrucks({}, user),
-    enabled: !!user,
-  });
+  const loadTrucks = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await getAllTrucks({}, user);
+      setTrucks(res?.trucks || []);
+    } catch (err) {
+      setError(err?.message || "Failed to load trucks");
+    }
+  }, [user]);
 
-  const { data: driversData, refetch: refetchDrivers, isFetching: driversFetching } = useQuery({
-    queryKey: ["drivers", user?.userId, user?.role],
-    queryFn: () => getAllDrivers({}, user),
-    enabled: !!user,
-  });
+  const loadDrivers = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await getAllDrivers({}, user);
+      setDrivers(res?.drivers || []);
+    } catch (err) {
+      // drivers load failure doesn't replace trucks error
+      setDrivers([]);
+    }
+  }, [user]);
 
-  const { data: usersData } = useQuery({
-    queryKey: ["users"],
-    queryFn: getAllUsersForSelection,
-    enabled: user?.role === "super_admin",
-  });
+  const loadUsers = useCallback(async () => {
+    if (!user || user?.role !== "super_admin") return;
+    try {
+      const res = await getAllUsersForSelection();
+      setUsers(res?.users || []);
+    } catch {
+      setUsers([]);
+    }
+  }, [user]);
 
-  const trucks = trucksData?.trucks || [];
-  const drivers = driversData?.drivers || [];
-  const users = usersData?.users || [];
+  const refresh = useCallback(async () => {
+    if (!user) return;
+    setRefreshing(true);
+    setError(null);
+    await Promise.all([loadTrucks(), loadDrivers(), loadUsers()]);
+    setRefreshing(false);
+  }, [user, loadTrucks, loadDrivers, loadUsers]);
+
+  useEffect(() => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      getAllTrucks({}, user).then((res) => !cancelled && setTrucks(res?.trucks || [])),
+      getAllDrivers({}, user).then((res) => !cancelled && setDrivers(res?.drivers || [])),
+      user?.role === "super_admin"
+        ? getAllUsersForSelection().then((res) => !cancelled && setUsers(res?.users || []))
+        : Promise.resolve(),
+    ]).catch((err) => !cancelled && setError(err?.message || "Failed to load")).finally(() => !cancelled && setLoading(false));
+    return () => { cancelled = true; };
+  }, [user?.userId, user?.role]);
 
   // Filter and sort trucks
   const filteredTrucks = useMemo(() => {
@@ -56,48 +95,33 @@ export default function CarriersPage() {
       );
     });
 
-    // Apply sorting
     if (sortField) {
       result = [...result].sort((a, b) => {
         let aValue, bValue;
-
         switch (sortField) {
           case "name":
             aValue = (a.name || "").toLowerCase();
             bValue = (b.name || "").toLowerCase();
             break;
           case "driver":
-            const aDrivers = a.drivers && a.drivers.length > 0 
-              ? a.drivers.map(d => d.name).join(", ")
-              : "";
-            const bDrivers = b.drivers && b.drivers.length > 0 
-              ? b.drivers.map(d => d.name).join(", ")
-              : "";
+            const aDrivers = a.drivers && a.drivers.length > 0 ? a.drivers.map(d => d.name).join(", ") : "";
+            const bDrivers = b.drivers && b.drivers.length > 0 ? b.drivers.map(d => d.name).join(", ") : "";
             aValue = aDrivers.toLowerCase();
             bValue = bDrivers.toLowerCase();
             break;
           default:
             return 0;
         }
-
         if (typeof aValue === "string" && typeof bValue === "string") {
-          if (sortDirection === "asc") {
-            return aValue.localeCompare(bValue);
-          } else {
-            return bValue.localeCompare(aValue);
-          }
+          return sortDirection === "asc" ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
         }
-
         return 0;
       });
     }
-
     return result;
   }, [trucks, searchQuery, sortField, sortDirection]);
 
-  const handleSearchChange = (value) => {
-    setSearchQuery(value);
-  };
+  const handleSearchChange = (value) => setSearchQuery(value);
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -121,20 +145,15 @@ export default function CarriersPage() {
   const createMutation = useMutation({
     mutationFn: (formData) => createTruck(formData),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["trucks"] });
+      loadTrucks();
       handleCloseForm();
     },
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ truckId, formData }) => updateTruck(truckId, formData),
-    onSuccess: (result, variables) => {
-      // Invalidate all truck-related queries
-      queryClient.invalidateQueries({ queryKey: ["trucks"] });
-      queryClient.invalidateQueries({ queryKey: ["truck", variables.truckId] });
-      // Refetch to ensure fresh data
-      queryClient.refetchQueries({ queryKey: ["trucks"] });
-      queryClient.refetchQueries({ queryKey: ["truck", variables.truckId] });
+    onSuccess: (_result, variables) => {
+      loadTrucks();
       handleCloseForm();
     },
   });
@@ -142,15 +161,10 @@ export default function CarriersPage() {
   const deleteMutation = useMutation({
     mutationFn: async (truckId) => {
       const result = await deleteTruck(truckId);
-      // If result has an error, throw it so React Query treats it as an error
-      if (result?.error) {
-        throw new Error(result.error);
-      }
+      if (result?.error) throw new Error(result.error);
       return result;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["trucks"] });
-    },
+    onSuccess: () => loadTrucks(),
     onError: (error) => {
       alert(`Error deleting truck: ${error.message || "Unknown error"}`);
     },
@@ -158,18 +172,7 @@ export default function CarriersPage() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    // Create FormData from the form element
-    // The TruckForm component ensures hidden inputs are added to the DOM before calling this
     const formData = new FormData(e.target);
-    
-    // Debug: Verify driver IDs are in FormData
-    if (!editingCarrier) {
-      console.log("CarriersPage - FormData driverIds:", formData.getAll('driverIds'));
-    }
-    
-    // For multi-select, we need to handle driverIds properly
-    // The formData already contains all selected values with name="driverIds"
-    
     if (editingCarrier) {
       updateMutation.mutate({ truckId: editingCarrier._id, formData });
     } else {
@@ -191,15 +194,12 @@ export default function CarriersPage() {
         <h1 className="text-xl font-bold text-gray-800">Trucks</h1>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => {
-              refetchTrucks();
-              refetchDrivers();
-            }}
-            disabled={trucksFetching || driversFetching}
+            onClick={refresh}
+            disabled={refreshing}
             className="px-2.5 py-1.5 text-gray-700 border border-gray-300 rounded-md hover:bg-stone-50 flex items-center gap-1.5 text-sm disabled:opacity-50"
             title="Refresh trucks and drivers"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${trucksFetching || driversFetching ? "animate-spin" : ""}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
             Refresh
           </button>
           <button
@@ -214,11 +214,11 @@ export default function CarriersPage() {
 
       <TruckSearch searchQuery={searchQuery} onSearchChange={handleSearchChange} />
 
-      {(userLoading || isLoading) ? (
+      {(userLoading || loading) ? (
         <div className="text-center py-8 text-gray-500">Loading trucks...</div>
       ) : error ? (
         <div className="text-center py-8 text-red-500">
-          Error loading trucks: {error.message || "Unknown error"}
+          Error loading trucks: {error}
         </div>
       ) : filteredTrucks.length === 0 ? (
         <div className="text-center py-8 text-gray-500 text-sm">

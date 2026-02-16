@@ -101,6 +101,9 @@ TruckSchema.pre("save", function () {
   }
 });
 
+// Index for userId filtering (getAllTrucks)
+TruckSchema.index({ userId: 1 });
+
 // Create compound unique index for name + userId to ensure uniqueness per user
 TruckSchema.index(
   { name: 1, userId: 1 },

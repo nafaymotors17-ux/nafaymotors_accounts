@@ -77,6 +77,7 @@ export default function SimpleCarriersTable({
   loading = false,
   onSelectedTripsChange,
   currentUser,
+  onRefreshCarriers,
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -119,14 +120,14 @@ export default function SimpleCarriersTable({
       // Invalidate carrier cars queries
       queryClient.invalidateQueries({ queryKey: ["carrierCars"] });
       // Invalidate carriers to update counts
-      queryClient.invalidateQueries({ queryKey: ["carriers"] });
+      onRefreshCarriers?.();
     },
   });
 
   const deleteCarrierMutation = useMutation({
     mutationFn: deleteCarrier,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["carriers"] });
+      onRefreshCarriers?.();
       // Also invalidate truck queries to refresh meter readings and maintenance status
       queryClient.invalidateQueries({ queryKey: ["trucks"] });
     },
@@ -149,7 +150,7 @@ export default function SimpleCarriersTable({
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["carriers"] });
+      onRefreshCarriers?.();
     },
   });
 
@@ -262,11 +263,11 @@ export default function SimpleCarriersTable({
       toggleActiveMutation.mutate(carrierIdStr, {
         onError: () => {
           // Revert on error
-          queryClient.invalidateQueries({ queryKey: ["carriers"] });
+          onRefreshCarriers?.();
         },
       });
     },
-    [toggleActiveMutation, queryClient],
+    [toggleActiveMutation, queryClient, onRefreshCarriers],
   );
 
   const handleExportToExcel = useCallback(async () => {
@@ -307,9 +308,9 @@ export default function SimpleCarriersTable({
         queryKey: ["carrierCars", carrierIdStr],
       });
       // Invalidate carriers to update counts
-      queryClient.invalidateQueries({ queryKey: ["carriers"] });
+      onRefreshCarriers?.();
     },
-    [queryClient],
+    [queryClient, onRefreshCarriers],
   );
 
   // Derived pagination info
@@ -548,7 +549,7 @@ export default function SimpleCarriersTable({
           onClose={() => {
             setShowTripForm(false);
             setEditingCarrier(null);
-            queryClient.invalidateQueries({ queryKey: ["carriers"] });
+            onRefreshCarriers?.();
           }}
         />
       )}

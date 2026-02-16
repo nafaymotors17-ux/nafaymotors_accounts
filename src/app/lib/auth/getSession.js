@@ -1,6 +1,8 @@
 "use server";
 
 import { cookies } from "next/headers";
+import connectDB from "@/app/lib/dbConnect";
+import User from "@/app/lib/models/User";
 
 /**
  * Get session from cookies (legacy) or from passed parameter (localStorage)
@@ -8,9 +10,20 @@ import { cookies } from "next/headers";
  * @returns {Object|null} Session object or null
  */
 export async function getSession(sessionData = null) {
-  // If session data is passed (from localStorage), use it
-  if (sessionData) {
-    return sessionData;
+  // If session data is passed (from x-session header), validate against DB
+  if (sessionData && sessionData.userId) {
+    try {
+      await connectDB();
+      const user = await User.findById(sessionData.userId).select("username role").lean();
+      if (!user) return null;
+      return {
+        userId: user._id.toString(),
+        username: user.username,
+        role: user.role,
+      };
+    } catch {
+      return null;
+    }
   }
 
   // Fallback to cookies for backward compatibility
@@ -19,7 +32,6 @@ export async function getSession(sessionData = null) {
     const sessionCookie = cookieStore.get("user_session");
 
     if (!sessionCookie) {
-    
       return null;
     }
 
@@ -31,14 +43,10 @@ export async function getSession(sessionData = null) {
       // If decode fails, try using the value directly (might not be encoded)
       decodedValue = sessionCookie.value;
     }
-    
-    const session = JSON.parse(decodedValue);
-    
 
-    
+    const session = JSON.parse(decodedValue);
     return session;
   } catch (error) {
-   
     return null;
   }
 }

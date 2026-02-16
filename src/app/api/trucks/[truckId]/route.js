@@ -8,14 +8,21 @@ import mongoose from "mongoose";
 export async function GET(request, { params }) {
   await connectDB();
   try {
-    const session = await getSession();
+    const sessionHeader = request.headers.get("x-session");
+    let session = null;
+    if (sessionHeader) {
+      try {
+        session = JSON.parse(sessionHeader);
+      } catch (_) {}
+    }
+    session = await getSession(session);
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const resolvedParams = params instanceof Promise ? await params : params;
     const { truckId } = resolvedParams;
-    
+
     if (!truckId || !mongoose.Types.ObjectId.isValid(truckId)) {
       return NextResponse.json({ error: "Invalid truck ID" }, { status: 400 });
     }
@@ -30,7 +37,10 @@ export async function GET(request, { params }) {
     }
 
     // Check permissions
-    if (session.role !== "super_admin" && truck.userId.toString() !== session.userId) {
+    if (
+      session.role !== "super_admin" &&
+      truck.userId.toString() !== session.userId
+    ) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
@@ -41,7 +51,7 @@ export async function GET(request, { params }) {
     console.error("Error fetching truck:", error);
     return NextResponse.json(
       { error: "Failed to fetch truck" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createCarrier, updateCarrierExpense, generateNextTripNumber } from "@/app/lib/carriers-actions/carriers";
 import { getAllTrucks } from "@/app/lib/carriers-actions/trucks";
 import { useUser } from "@/app/components/UserContext";
@@ -10,7 +9,6 @@ import { X, RefreshCw } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
 
 export default function CarrierTripForm({ carrier, users = [], onClose }) {
-  const queryClient = useQueryClient();
   const { user } = useUser();
   const [selectedUserId, setSelectedUserId] = useState("");
   const router = useRouter();
@@ -18,16 +16,15 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
   const [error, setError] = useState(null);
   const [tripNumber, setTripNumber] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [trucks, setTrucks] = useState([]);
   const notesRef = useRef(null);
 
-  // Fetch trucks for selection - pass user to avoid Vercel cookie sync issues
-  const { data: trucksData } = useQuery({
-    queryKey: ["trucks", user?.userId, user?.role],
-    queryFn: () => getAllTrucks({}, user),
-    enabled: !!user,
-  });
-
-  const trucks = trucksData?.trucks || [];
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    getAllTrucks({}, user).then((res) => !cancelled && setTrucks(res?.trucks || []));
+    return () => { cancelled = true; };
+  }, [user?.userId, user?.role]);
   const [selectedTruck, setSelectedTruck] = useState(null);
   const [tripDistance, setTripDistance] = useState("");
 
@@ -111,15 +108,6 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
         if (result.warning) {
           // Show warning but don't block - user can proceed
           alert(`Warning: ${result.warning}`);
-        }
-        // Invalidate queries to refresh data
-        if (carrier) {
-          // If updating, invalidate the specific trip query
-          queryClient.invalidateQueries({ queryKey: ["trip", carrier._id] });
-          queryClient.invalidateQueries({ queryKey: ["carriers"] });
-        } else {
-          // If creating, invalidate carriers list
-          queryClient.invalidateQueries({ queryKey: ["carriers"] });
         }
         // Close modal - onClose callback will handle refresh
         onClose();

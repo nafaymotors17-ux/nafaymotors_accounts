@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+import { useUser } from "@/app/components/UserContext";
 import { X, Plus, Trash2, DollarSign, Wrench, AlertTriangle, ChevronLeft, ChevronRight, Filter } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
 import TruckExpenseForm from "../components/TruckExpenseForm";
@@ -17,7 +18,6 @@ const CATEGORY_LABELS = {
 export default function TruckDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const queryClient = useQueryClient();
   const truckId = params.truckId;
 
   const [showExpenseForm, setShowExpenseForm] = useState(false);
@@ -27,59 +27,102 @@ export default function TruckDetailPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [maintenanceWarningDismissed, setMaintenanceWarningDismissed] = useState(false);
+  const [truckData, setTruckData] = useState(null);
+  const [expensesData, setExpensesData] = useState(null);
+  const [truckLoading, setTruckLoading] = useState(true);
+  const [expensesLoading, setExpensesLoading] = useState(true);
+  const [truckError, setTruckError] = useState(null);
+  const [expensesError, setExpensesError] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const { user } = useUser();
 
-  // Fetch truck data - retry on 401/500 (session cookie race or MongoDB cold start on Vercel)
-  const {
-    data: truckData,
-    isLoading: truckLoading,
-    error: truckError,
-    refetch: refetchTruck,
-    isRefetching: truckRefetching,
-  } = useQuery({
-    queryKey: ["truck", truckId],
-    queryFn: async () => {
-      const response = await fetch(`/api/trucks/${truckId}`, { credentials: "same-origin" });
-      if (!response.ok) throw new Error("Failed to fetch truck");
-      return response.json();
-    },
-    enabled: !!truckId,
-    staleTime: 0,
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-    retry: 3,
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
-  });
-
-  // Build query params for expenses
   const expenseQueryParams = useMemo(() => {
-    const params = new URLSearchParams();
-    params.set("page", page.toString());
-    params.set("limit", limit.toString());
-    if (categoryFilter) params.set("category", categoryFilter);
-    if (startDate) params.set("startDate", startDate);
-    if (endDate) params.set("endDate", endDate);
-    return params.toString();
+    const p = new URLSearchParams();
+    p.set("page", page.toString());
+    p.set("limit", limit.toString());
+    if (categoryFilter) p.set("category", categoryFilter);
+    if (startDate) p.set("startDate", startDate);
+    if (endDate) p.set("endDate", endDate);
+    return p.toString();
   }, [page, limit, categoryFilter, startDate, endDate]);
 
-  // Fetch truck expenses - retry on 401/500 (session cookie race or MongoDB cold start)
-  const { data: expensesData, isLoading: expensesLoading, error: expensesError } = useQuery({
-    queryKey: ["truck-expenses", truckId, expenseQueryParams],
-    queryFn: async () => {
+  const loadTruck = useCallback(async () => {
+    if (!truckId) return;
+    setTruckError(null);
+    const headers = {};
+    if (user) headers["x-session"] = JSON.stringify(user);
+    try {
+      const response = await fetch(`/api/trucks/${truckId}`, {
+        credentials: "same-origin",
+        headers,
+      });
+      if (!response.ok) throw new Error("Failed to fetch truck");
+      const data = await response.json();
+      setTruckData(data);
+    } catch (err) {
+      setTruckError(err);
+    }
+  }, [truckId, user]);
+
+  const loadExpenses = useCallback(async () => {
+    if (!truckId) return;
+    setExpensesError(null);
+    const headers = {};
+    if (user) headers["x-session"] = JSON.stringify(user);
+    try {
       const response = await fetch(`/api/trucks/${truckId}/expenses?${expenseQueryParams}`, {
         credentials: "same-origin",
+        headers,
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || "Failed to fetch expenses");
       }
       const data = await response.json();
-      return data;
-    },
-    enabled: !!truckId,
-    staleTime: 0,
-    retry: 3,
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
-  });
+      setExpensesData(data);
+    } catch (err) {
+      setExpensesError(err);
+    }
+  }, [truckId, expenseQueryParams, user]);
+
+  useEffect(() => {
+    if (!truckId || !user) return;
+    let cancelled = false;
+    setTruckLoading(true);
+    const headers = { "x-session": JSON.stringify(user) };
+    fetch(`/api/trucks/${truckId}`, { credentials: "same-origin", headers })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Failed to fetch truck"))))
+      .then((data) => !cancelled && setTruckData(data))
+      .catch((err) => !cancelled && setTruckError(err))
+      .finally(() => !cancelled && setTruckLoading(false));
+    return () => { cancelled = true; };
+  }, [truckId, user]);
+
+  useEffect(() => {
+    if (!truckId || !user) return;
+    let cancelled = false;
+    setExpensesLoading(true);
+    const headers = { "x-session": JSON.stringify(user) };
+    fetch(`/api/trucks/${truckId}/expenses?${expenseQueryParams}`, {
+      credentials: "same-origin",
+      headers,
+    })
+      .then((r) => {
+        if (!r.ok) return r.json().then((d) => Promise.reject(new Error(d?.error || "Failed to fetch expenses")));
+        return r.json();
+      })
+      .then((data) => !cancelled && setExpensesData(data))
+      .catch((err) => !cancelled && setExpensesError(err))
+      .finally(() => !cancelled && setExpensesLoading(false));
+    return () => { cancelled = true; };
+  }, [truckId, expenseQueryParams, user]);
+
+  const refetchTruck = useCallback(async () => {
+    setRefreshing(true);
+    await loadTruck();
+    await loadExpenses();
+    setRefreshing(false);
+  }, [loadTruck, loadExpenses]);
 
   const deleteExpenseMutation = useMutation({
     mutationFn: async (expenseId) => {
@@ -90,9 +133,8 @@ export default function TruckDetailPage() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["truck-expenses", truckId] });
-      queryClient.invalidateQueries({ queryKey: ["truck", truckId] });
-      queryClient.invalidateQueries({ queryKey: ["trucks"] });
+      loadExpenses();
+      loadTruck();
     },
   });
 
@@ -103,12 +145,8 @@ export default function TruckDetailPage() {
 
   const handleCloseExpenseForm = async () => {
     setShowExpenseForm(false);
-    // Invalidate and refetch to ensure fresh data
-    queryClient.invalidateQueries({ queryKey: ["truck-expenses", truckId] });
-    queryClient.invalidateQueries({ queryKey: ["truck", truckId] });
-    queryClient.invalidateQueries({ queryKey: ["trucks"] });
-    // Refetch truck data immediately to show updated maintenance info
-    await queryClient.refetchQueries({ queryKey: ["truck", truckId] });
+    await loadExpenses();
+    await loadTruck();
   };
 
   const handleFilterChange = () => {
@@ -152,10 +190,10 @@ export default function TruckDetailPage() {
           <p className="text-sm text-gray-500 mb-4">{truckError.message}</p>
           <button
             onClick={() => refetchTruck()}
-            disabled={truckRefetching}
+            disabled={refreshing}
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
           >
-            {truckRefetching ? "Retrying..." : "Retry"}
+            {refreshing ? "Retrying..." : "Retry"}
           </button>
           <button
             onClick={() => router.push("/carriers")}

@@ -1,10 +1,15 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getAllDrivers, createDriver, updateDriver, deleteDriver } from "@/app/lib/carriers-actions/drivers";
+import { useMutation } from "@tanstack/react-query";
+import {
+  getAllDrivers,
+  createDriver,
+  updateDriver,
+  deleteDriver,
+} from "@/app/lib/carriers-actions/drivers";
 import { getAllUsersForSelection } from "@/app/lib/users-actions/users";
 import { useUser } from "@/app/components/UserContext";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Plus, RefreshCw } from "lucide-react";
 import DriversTable from "./components/DriversTable";
 import DriverForm from "./components/DriverForm";
@@ -19,33 +24,77 @@ export default function DriversPage() {
   const [sortDirection, setSortDirection] = useState("asc");
   const [showDriverRentModal, setShowDriverRentModal] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState(null);
+  const [drivers, setDrivers] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
   const { user, loading: userLoading } = useUser();
-  
-  const queryClient = useQueryClient();
 
-  const { data: driversData, isLoading, error, refetch: refetchDrivers, isFetching: driversFetching } = useQuery({
-    queryKey: ["drivers", user?.userId, user?.role],
-    queryFn: () => getAllDrivers({}, user),
-    enabled: !!user,
-  });
+  const loadDrivers = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await getAllDrivers({}, user);
+      setDrivers(res?.drivers || []);
+    } catch (err) {
+      setError(err?.message || "Failed to load drivers");
+    }
+  }, [user]);
 
-  const { data: usersData } = useQuery({
-    queryKey: ["users"],
-    queryFn: getAllUsersForSelection,
-    enabled: user?.role === "super_admin",
-  });
+  const loadUsers = useCallback(async () => {
+    if (!user || user?.role !== "super_admin") return;
+    try {
+      const res = await getAllUsersForSelection();
+      setUsers(res?.users || []);
+    } catch {
+      setUsers([]);
+    }
+  }, [user]);
 
-  const drivers = driversData?.drivers || [];
-  const users = usersData?.users || [];
+  const refresh = useCallback(async () => {
+    if (!user) return;
+    setRefreshing(true);
+    setError(null);
+    await Promise.all([loadDrivers(), loadUsers()]);
+    setRefreshing(false);
+  }, [user, loadDrivers, loadUsers]);
+
+  useEffect(() => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      getAllDrivers({}, user).then(
+        (res) => !cancelled && setDrivers(res?.drivers || []),
+      ),
+      user?.role === "super_admin"
+        ? getAllUsersForSelection().then(
+            (res) => !cancelled && setUsers(res?.users || []),
+          )
+        : Promise.resolve(),
+    ])
+      .catch((err) => !cancelled && setError(err?.message || "Failed to load"))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.userId, user?.role]);
 
   // Filter and sort drivers
   const filteredDrivers = useMemo(() => {
-    let result = drivers.filter((driver) =>
-      driver.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      driver.phone?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      driver.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      driver.licenseNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      driver.address?.toLowerCase().includes(searchQuery.toLowerCase())
+    let result = drivers.filter(
+      (driver) =>
+        driver.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        driver.phone?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        driver.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        driver.licenseNumber
+          ?.toLowerCase()
+          .includes(searchQuery.toLowerCase()) ||
+        driver.address?.toLowerCase().includes(searchQuery.toLowerCase()),
     );
 
     // Apply sorting
@@ -120,7 +169,7 @@ export default function DriversPage() {
   const createMutation = useMutation({
     mutationFn: (formData) => createDriver(formData),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["drivers"] });
+      loadDrivers();
       handleCloseForm();
     },
   });
@@ -128,22 +177,20 @@ export default function DriversPage() {
   const updateMutation = useMutation({
     mutationFn: ({ driverId, formData }) => updateDriver(driverId, formData),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["drivers"] });
+      loadDrivers();
       handleCloseForm();
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: deleteDriver,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["drivers"] });
-    },
+    onSuccess: () => loadDrivers(),
   });
 
   const handleSubmit = (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
-    
+
     if (editingDriver) {
       updateMutation.mutate({ driverId: editingDriver._id, formData });
     } else {
@@ -165,12 +212,14 @@ export default function DriversPage() {
         <h1 className="text-xl font-bold text-gray-800">Drivers</h1>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => refetchDrivers()}
-            disabled={driversFetching}
+            onClick={refresh}
+            disabled={refreshing}
             className="px-2.5 py-1.5 text-gray-700 border border-gray-300 rounded-md hover:bg-stone-50 flex items-center gap-1.5 text-sm disabled:opacity-50"
             title="Refresh drivers"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${driversFetching ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`}
+            />
             Refresh
           </button>
           <button
@@ -183,17 +232,22 @@ export default function DriversPage() {
         </div>
       </div>
 
-      <DriverSearch searchQuery={searchQuery} onSearchChange={handleSearchChange} />
+      <DriverSearch
+        searchQuery={searchQuery}
+        onSearchChange={handleSearchChange}
+      />
 
-      {(userLoading || isLoading) ? (
+      {userLoading || loading ? (
         <div className="text-center py-8 text-gray-500">Loading drivers...</div>
       ) : error ? (
         <div className="text-center py-8 text-red-500">
-          Error loading drivers: {error.message || "Unknown error"}
+          Error loading drivers: {error}
         </div>
       ) : filteredDrivers.length === 0 ? (
         <div className="text-center py-8 text-gray-500 text-sm">
-          {searchQuery ? "No drivers found matching your search." : "No drivers found."}
+          {searchQuery
+            ? "No drivers found matching your search."
+            : "No drivers found."}
         </div>
       ) : (
         <DriversTable
