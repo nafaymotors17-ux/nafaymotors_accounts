@@ -6,10 +6,11 @@ import connectDB from "@/app/lib/dbConnect";
 import Driver from "@/app/lib/models/Driver";
 import { getSession } from "@/app/lib/auth/getSession";
 
-export async function getAllDrivers(searchParams = {}) {
+export async function getAllDrivers(searchParams = {}, sessionFromClient = null) {
   await connectDB();
   try {
-    const session = await getSession();
+    // Use session from client (localStorage) when passed - avoids cookie sync issues on Vercel
+    const session = sessionFromClient || (await getSession());
     if (!session) {
       return { drivers: [] };
     }

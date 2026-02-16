@@ -20,10 +20,11 @@ export default function CarrierTripForm({ carrier, users = [], onClose }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const notesRef = useRef(null);
 
-  // Fetch trucks for selection
+  // Fetch trucks for selection - pass user to avoid Vercel cookie sync issues
   const { data: trucksData } = useQuery({
-    queryKey: ["trucks"],
-    queryFn: () => getAllTrucks({}),
+    queryKey: ["trucks", user?.userId, user?.role],
+    queryFn: () => getAllTrucks({}, user),
+    enabled: !!user,
   });
 
   const trucks = trucksData?.trucks || [];

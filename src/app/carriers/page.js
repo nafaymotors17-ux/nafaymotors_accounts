@@ -17,18 +17,20 @@ export default function CarriersPage() {
   const [showForm, setShowForm] = useState(false);
   const [sortField, setSortField] = useState(null);
   const [sortDirection, setSortDirection] = useState("asc");
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
   
   const queryClient = useQueryClient();
 
   const { data: trucksData, isLoading, error } = useQuery({
-    queryKey: ["trucks"],
-    queryFn: () => getAllTrucks({}),
+    queryKey: ["trucks", user?.userId, user?.role],
+    queryFn: () => getAllTrucks({}, user),
+    enabled: !!user,
   });
 
   const { data: driversData } = useQuery({
-    queryKey: ["drivers"],
-    queryFn: () => getAllDrivers({}),
+    queryKey: ["drivers", user?.userId, user?.role],
+    queryFn: () => getAllDrivers({}, user),
+    enabled: !!user,
   });
 
   const { data: usersData } = useQuery({
@@ -198,7 +200,7 @@ export default function CarriersPage() {
 
       <TruckSearch searchQuery={searchQuery} onSearchChange={handleSearchChange} />
 
-      {isLoading ? (
+      {(userLoading || isLoading) ? (
         <div className="text-center py-8 text-gray-500">Loading trucks...</div>
       ) : error ? (
         <div className="text-center py-8 text-red-500">

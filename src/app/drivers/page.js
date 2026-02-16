@@ -19,13 +19,14 @@ export default function DriversPage() {
   const [sortDirection, setSortDirection] = useState("asc");
   const [showDriverRentModal, setShowDriverRentModal] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState(null);
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
   
   const queryClient = useQueryClient();
 
   const { data: driversData, isLoading, error } = useQuery({
-    queryKey: ["drivers"],
-    queryFn: () => getAllDrivers({}),
+    queryKey: ["drivers", user?.userId, user?.role],
+    queryFn: () => getAllDrivers({}, user),
+    enabled: !!user,
   });
 
   const { data: usersData } = useQuery({
@@ -173,7 +174,7 @@ export default function DriversPage() {
 
       <DriverSearch searchQuery={searchQuery} onSearchChange={handleSearchChange} />
 
-      {isLoading ? (
+      {(userLoading || isLoading) ? (
         <div className="text-center py-8 text-gray-500">Loading drivers...</div>
       ) : error ? (
         <div className="text-center py-8 text-red-500">
