@@ -28,11 +28,17 @@ export default function TruckDetailPage() {
   const [endDate, setEndDate] = useState("");
   const [maintenanceWarningDismissed, setMaintenanceWarningDismissed] = useState(false);
 
-  // Fetch truck data
-  const { data: truckData, isLoading: truckLoading, refetch: refetchTruck } = useQuery({
+  // Fetch truck data - retry on 401/500 (session cookie race or MongoDB cold start on Vercel)
+  const {
+    data: truckData,
+    isLoading: truckLoading,
+    error: truckError,
+    refetch: refetchTruck,
+    isRefetching: truckRefetching,
+  } = useQuery({
     queryKey: ["truck", truckId],
     queryFn: async () => {
-      const response = await fetch(`/api/trucks/${truckId}`);
+      const response = await fetch(`/api/trucks/${truckId}`, { credentials: "same-origin" });
       if (!response.ok) throw new Error("Failed to fetch truck");
       return response.json();
     },
@@ -40,6 +46,8 @@ export default function TruckDetailPage() {
     staleTime: 0,
     refetchOnMount: true,
     refetchOnWindowFocus: true,
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
   });
 
   // Build query params for expenses
@@ -53,11 +61,13 @@ export default function TruckDetailPage() {
     return params.toString();
   }, [page, limit, categoryFilter, startDate, endDate]);
 
-  // Fetch truck expenses with filters and pagination
+  // Fetch truck expenses - retry on 401/500 (session cookie race or MongoDB cold start)
   const { data: expensesData, isLoading: expensesLoading, error: expensesError } = useQuery({
     queryKey: ["truck-expenses", truckId, expenseQueryParams],
     queryFn: async () => {
-      const response = await fetch(`/api/trucks/${truckId}/expenses?${expenseQueryParams}`);
+      const response = await fetch(`/api/trucks/${truckId}/expenses?${expenseQueryParams}`, {
+        credentials: "same-origin",
+      });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || "Failed to fetch expenses");
@@ -67,6 +77,8 @@ export default function TruckDetailPage() {
     },
     enabled: !!truckId,
     staleTime: 0,
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
   });
 
   const deleteExpenseMutation = useMutation({
@@ -130,6 +142,31 @@ export default function TruckDetailPage() {
     : `${kmsRemaining.toLocaleString("en-US")} km remaining`;
   
   const loading = truckLoading || expensesLoading;
+
+  // Show error state with retry for intermittent failures (e.g. Vercel cold start)
+  if (truckError && !truckData) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center max-w-md px-4">
+          <p className="text-gray-600 mb-2">Failed to load truck data. This can happen briefly on first load.</p>
+          <p className="text-sm text-gray-500 mb-4">{truckError.message}</p>
+          <button
+            onClick={() => refetchTruck()}
+            disabled={truckRefetching}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+          >
+            {truckRefetching ? "Retrying..." : "Retry"}
+          </button>
+          <button
+            onClick={() => router.push("/carriers")}
+            className="ml-2 px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
+          >
+            Back to Trucks
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

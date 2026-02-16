@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { getSessionFromStorage, clearSessionFromStorage } from "@/app/lib/auth/sessionClient";
 import { syncSessionToCookie, clearSessionCookie } from "@/app/lib/auth/syncSession";
@@ -14,6 +14,17 @@ export function UserProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
+
+  // Sync session cookie before child useEffects - useLayoutEffect runs before
+  // React Query fetches, fixing intermittent 401 on direct navigation (Vercel)
+  useLayoutEffect(() => {
+    const session = getSessionFromStorage();
+    if (session) {
+      syncSessionToCookie();
+    } else {
+      clearSessionCookie();
+    }
+  }, [pathname]);
 
   useEffect(() => {
     // Read session from localStorage
