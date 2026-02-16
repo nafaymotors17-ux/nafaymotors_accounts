@@ -87,7 +87,7 @@ const TruckSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
-});
+}, { collection: "trucks" });
 
 TruckSchema.pre("save", function () {
   this.updatedAt = Date.now();
