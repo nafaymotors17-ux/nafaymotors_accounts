@@ -1,5 +1,6 @@
 "use client";
 
+export const dynamic = "force-dynamic";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
@@ -43,26 +44,17 @@ export default function CarriersPage() {
   }, [searchParams]);
 
   // Server data with React Query
-  const {
-    data: carriersData,
-    isLoading: carriersLoading,
-  } = useQuery({
+  const { data: carriersData, isLoading: carriersLoading } = useQuery({
     queryKey: ["carriers", queryParams],
     queryFn: () => getAllCarriers(queryParams),
   });
 
-  const {
-    data: companiesData,
-    isLoading: companiesLoading,
-  } = useQuery({
+  const { data: companiesData, isLoading: companiesLoading } = useQuery({
     queryKey: ["companies"],
     queryFn: getAllCompanies,
   });
 
-  const {
-    data: usersData,
-    isLoading: usersLoading,
-  } = useQuery({
+  const { data: usersData, isLoading: usersLoading } = useQuery({
     queryKey: ["users"],
     queryFn: getAllUsersForSelection,
     enabled: user?.role === "super_admin",
@@ -71,39 +63,37 @@ export default function CarriersPage() {
   // Derived values with useMemo
   const carriers = useMemo(
     () => carriersData?.carriers || [],
-    [carriersData?.carriers]
+    [carriersData?.carriers],
   );
 
   const companies = useMemo(
     () => companiesData?.companies || [],
-    [companiesData?.companies]
+    [companiesData?.companies],
   );
 
-  const users = useMemo(
-    () => usersData?.users || [],
-    [usersData?.users]
-  );
+  const users = useMemo(() => usersData?.users || [], [usersData?.users]);
 
   const pagination = useMemo(
     () => carriersData?.pagination,
-    [carriersData?.pagination]
+    [carriersData?.pagination],
   );
 
   const isSuperAdmin = useMemo(
     () => user?.role === "super_admin",
-    [user?.role]
+    [user?.role],
   );
 
   // Get totals from API (calculated at database level with filters applied)
   const totals = useMemo(
-    () => carriersData?.totals || {
-      totalCars: 0,
-      totalAmount: 0,
-      totalExpenses: 0,
-      totalProfit: 0,
-      totalTrips: 0,
-    },
-    [carriersData?.totals]
+    () =>
+      carriersData?.totals || {
+        totalCars: 0,
+        totalAmount: 0,
+        totalExpenses: 0,
+        totalProfit: 0,
+        totalTrips: 0,
+      },
+    [carriersData?.totals],
   );
 
   const totalCars = totals.totalCars;
@@ -115,7 +105,7 @@ export default function CarriersPage() {
   // Check if company filter is selected
   const hasCompanyFilter = useMemo(
     () => !!queryParams.company,
-    [queryParams.company]
+    [queryParams.company],
   );
 
   const loading = carriersLoading || companiesLoading || usersLoading;
@@ -124,7 +114,9 @@ export default function CarriersPage() {
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto px-4 py-8">
         {/* Summary Cards - Top level stats shown first */}
-        <div className={`grid grid-cols-1 gap-2 mb-3 ${hasCompanyFilter ? "md:grid-cols-3" : "md:grid-cols-5"}`}>
+        <div
+          className={`grid grid-cols-1 gap-2 mb-3 ${hasCompanyFilter ? "md:grid-cols-3" : "md:grid-cols-5"}`}
+        >
           <div className="bg-white px-3 py-2 rounded-lg shadow-sm border border-gray-200">
             <p className="text-[10px] text-gray-500 mb-0.5">Total Cars</p>
             <p className="text-lg font-bold text-gray-800">{totalCars}</p>
@@ -132,21 +124,34 @@ export default function CarriersPage() {
           <div className="bg-white px-3 py-2 rounded-lg shadow-sm border border-gray-200">
             <p className="text-[10px] text-gray-500 mb-0.5">Total Amount</p>
             <p className="text-lg font-bold text-green-600">
-              R{totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+              R
+              {totalAmount.toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+              })}
             </p>
           </div>
           {!hasCompanyFilter && (
             <>
               <div className="bg-white px-3 py-2 rounded-lg shadow-sm border border-gray-200">
-                <p className="text-[10px] text-gray-500 mb-0.5">Total Expenses</p>
+                <p className="text-[10px] text-gray-500 mb-0.5">
+                  Total Expenses
+                </p>
                 <p className="text-lg font-bold text-red-600">
-                  R{totalExpenses.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  R
+                  {totalExpenses.toLocaleString("en-US", {
+                    minimumFractionDigits: 2,
+                  })}
                 </p>
               </div>
               <div className="bg-white px-3 py-2 rounded-lg shadow-sm border border-gray-200">
                 <p className="text-[10px] text-gray-500 mb-0.5">Total Profit</p>
-                <p className={`text-lg font-bold ${totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                  R{totalProfit.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                <p
+                  className={`text-lg font-bold ${totalProfit >= 0 ? "text-green-600" : "text-red-600"}`}
+                >
+                  R
+                  {totalProfit.toLocaleString("en-US", {
+                    minimumFractionDigits: 2,
+                  })}
                 </p>
               </div>
             </>
