@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import mongoose from "mongoose";
 import connectDB from "@/app/lib/dbConnect";
-import Truck from "@/app/lib/models/Truck";
 import { getSession } from "@/app/lib/auth/getSession";
 
 export async function getAllTrucks(
@@ -12,6 +11,7 @@ export async function getAllTrucks(
 ) {
   await connectDB();
   try {
+    const Truck = (await import("@/app/lib/models/Truck")).default;
     // Use session from client (localStorage) when passed - avoids cookie sync issues on Vercel
     const session = sessionFromClient || (await getSession());
     if (!session) {
@@ -166,6 +166,7 @@ export async function getAllTrucks(
 export async function getTruckById(truckId) {
   await connectDB();
   try {
+    const Truck = (await import("@/app/lib/models/Truck")).default;
     const session = await getSession();
     if (!session) {
       return { error: "Unauthorized" };

@@ -1,9 +1,9 @@
 import mongoose from "mongoose";
 
-const MONGODB_URI = process.env.ATLAS_URL;
+const MONGODB_URI = process.env.ATLAS_URL || process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
-  throw new Error("Please define MONGODB_URI in .env.local");
+  throw new Error("Please define ATLAS_URL or MONGODB_URI in your environment");
 }
 
 let cached = global.mongoose;

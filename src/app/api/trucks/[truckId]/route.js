@@ -7,6 +7,8 @@ import mongoose from "mongoose";
 export async function GET(request, { params }) {
   await connectDB();
   try {
+    // Ensure Driver model is registered so populate("drivers") works on Vercel serverless
+    await import("@/app/lib/models/Driver");
     const Truck = (await import("@/app/lib/models/Truck")).default;
     const sessionHeader = request.headers.get("x-session");
     let session = null;
@@ -33,6 +35,7 @@ export async function GET(request, { params }) {
       .lean();
 
     if (!truck) {
+      console.warn("[Truck GET] Not found:", { truckId, collection: Truck.collection?.name });
       return NextResponse.json({ error: "Truck not found" }, { status: 404 });
     }
 

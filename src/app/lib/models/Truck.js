@@ -87,7 +87,7 @@ const TruckSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
-}, { collection: "trucks" });
+}, { collection: process.env.TRUCK_COLLECTION || "trucks" });
 
 TruckSchema.pre("save", function () {
   this.updatedAt = Date.now();
@@ -112,4 +112,9 @@ TruckSchema.index(
   },
 );
 
-export default mongoose.models.Truck || mongoose.model("Truck", TruckSchema);
+// Ensure model is always registered on the default connection (fixes Vercel serverless)
+function getTruckModel() {
+  if (mongoose.models.Truck) return mongoose.models.Truck;
+  return mongoose.model("Truck", TruckSchema);
+}
+export default getTruckModel();

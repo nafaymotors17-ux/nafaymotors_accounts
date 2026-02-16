@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import connectDB from "@/app/lib/dbConnect";
 import Expense from "@/app/lib/models/Expense";
-import Truck from "@/app/lib/models/Truck";
 import { getSession } from "@/app/lib/auth/getSession";
 import mongoose from "mongoose";
 
@@ -9,6 +8,7 @@ import mongoose from "mongoose";
 export async function GET(request, { params }) {
   await connectDB();
   try {
+    const Truck = (await import("@/app/lib/models/Truck")).default;
     const sessionHeader = request.headers.get("x-session");
     let session = null;
     if (sessionHeader) {
@@ -225,6 +225,7 @@ export async function GET(request, { params }) {
 export async function POST(request, { params }) {
   await connectDB();
   try {
+    const Truck = (await import("@/app/lib/models/Truck")).default;
     const sessionHeader = request.headers.get("x-session");
     let session = null;
     if (sessionHeader) {
