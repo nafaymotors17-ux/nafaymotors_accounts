@@ -5,7 +5,7 @@ import { getAllDrivers, createDriver, updateDriver, deleteDriver } from "@/app/l
 import { getAllUsersForSelection } from "@/app/lib/users-actions/users";
 import { useUser } from "@/app/components/UserContext";
 import { useState, useMemo } from "react";
-import { Plus } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import DriversTable from "./components/DriversTable";
 import DriverForm from "./components/DriverForm";
 import DriverSearch from "./components/DriverSearch";
@@ -23,7 +23,7 @@ export default function DriversPage() {
   
   const queryClient = useQueryClient();
 
-  const { data: driversData, isLoading, error } = useQuery({
+  const { data: driversData, isLoading, error, refetch: refetchDrivers, isFetching: driversFetching } = useQuery({
     queryKey: ["drivers", user?.userId, user?.role],
     queryFn: () => getAllDrivers({}, user),
     enabled: !!user,
@@ -163,13 +163,24 @@ export default function DriversPage() {
     <div className="container mx-auto px-4 py-8">
       <div className="mb-4 flex justify-between items-center">
         <h1 className="text-xl font-bold text-gray-800">Drivers</h1>
-        <button
-          onClick={() => setShowForm(true)}
-          className="px-2.5 py-1.5 bg-stone-50 text-gray-700 border border-gray-300 rounded-md hover:bg-stone-100 flex items-center gap-1.5 text-sm"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Add Driver
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => refetchDrivers()}
+            disabled={driversFetching}
+            className="px-2.5 py-1.5 text-gray-700 border border-gray-300 rounded-md hover:bg-stone-50 flex items-center gap-1.5 text-sm disabled:opacity-50"
+            title="Refresh drivers"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${driversFetching ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+          <button
+            onClick={() => setShowForm(true)}
+            className="px-2.5 py-1.5 bg-stone-50 text-gray-700 border border-gray-300 rounded-md hover:bg-stone-100 flex items-center gap-1.5 text-sm"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Add Driver
+          </button>
+        </div>
       </div>
 
       <DriverSearch searchQuery={searchQuery} onSearchChange={handleSearchChange} />

@@ -6,7 +6,7 @@ import { getAllDrivers } from "@/app/lib/carriers-actions/drivers";
 import { getAllUsersForSelection } from "@/app/lib/users-actions/users";
 import { useUser } from "@/app/components/UserContext";
 import { useState, useMemo } from "react";
-import { Plus } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import TrucksTable from "./components/TrucksTable";
 import TruckForm from "./components/TruckForm";
 import TruckSearch from "./components/TruckSearch";
@@ -21,13 +21,13 @@ export default function CarriersPage() {
   
   const queryClient = useQueryClient();
 
-  const { data: trucksData, isLoading, error } = useQuery({
+  const { data: trucksData, isLoading, error, refetch: refetchTrucks, isFetching: trucksFetching } = useQuery({
     queryKey: ["trucks", user?.userId, user?.role],
     queryFn: () => getAllTrucks({}, user),
     enabled: !!user,
   });
 
-  const { data: driversData } = useQuery({
+  const { data: driversData, refetch: refetchDrivers, isFetching: driversFetching } = useQuery({
     queryKey: ["drivers", user?.userId, user?.role],
     queryFn: () => getAllDrivers({}, user),
     enabled: !!user,
@@ -189,13 +189,27 @@ export default function CarriersPage() {
     <div className="container mx-auto px-4 py-8">
       <div className="mb-4 flex justify-between items-center">
         <h1 className="text-xl font-bold text-gray-800">Trucks</h1>
-        <button
-          onClick={() => setShowForm(true)}
-          className="px-2.5 py-1.5 bg-stone-50 text-gray-700 border border-gray-300 rounded-md hover:bg-stone-100 flex items-center gap-1.5 text-sm"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Add Truck
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              refetchTrucks();
+              refetchDrivers();
+            }}
+            disabled={trucksFetching || driversFetching}
+            className="px-2.5 py-1.5 text-gray-700 border border-gray-300 rounded-md hover:bg-stone-50 flex items-center gap-1.5 text-sm disabled:opacity-50"
+            title="Refresh trucks and drivers"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${trucksFetching || driversFetching ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+          <button
+            onClick={() => setShowForm(true)}
+            className="px-2.5 py-1.5 bg-stone-50 text-gray-700 border border-gray-300 rounded-md hover:bg-stone-100 flex items-center gap-1.5 text-sm"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Add Truck
+          </button>
+        </div>
       </div>
 
       <TruckSearch searchQuery={searchQuery} onSearchChange={handleSearchChange} />
