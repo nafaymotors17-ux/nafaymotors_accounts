@@ -68,7 +68,7 @@ function useCarrierCars(carrierId, filters, enabled) {
   });
 }
 
-export default function SimpleCarriersTable({
+function SimpleCarriersTable({
   carriers,
   companies,
   users = [],
@@ -566,8 +566,10 @@ export default function SimpleCarriersTable({
   );
 }
 
-// Extracted row component for better organization
-function CarrierCarsRow({
+export default React.memo(SimpleCarriersTable);
+
+// Extracted row component for better organization (memoized to avoid re-renders when parent updates)
+const CarrierCarsRow = React.memo(function CarrierCarsRow({
   carrier,
   index,
   pagination,
@@ -590,8 +592,13 @@ function CarrierCarsRow({
   const carrierIdStr = carrier._id.toString();
   const isToggling = toggleActiveMutation.isPending;
 
-  // Fetch cars when expanded using React Query
-  const { data: carsData } = useCarrierCars(carrierIdStr, filters, isExpanded);
+  // Use list data when available; only fetch when expanded and list has no cars (avoids redundant API call)
+  const hasCarsFromList = carrier.cars && carrier.cars.length > 0;
+  const { data: carsData } = useCarrierCars(
+    carrierIdStr,
+    filters,
+    isExpanded && !hasCarsFromList,
+  );
   const cars = carsData?.cars || carrier.cars || [];
 
   // Derived values with useMemo
@@ -920,4 +927,4 @@ function CarrierCarsRow({
       )}
     </>
   );
-}
+});

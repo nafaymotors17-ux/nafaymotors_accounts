@@ -11,40 +11,26 @@ import Truck from "@/app/lib/models/Truck";
 import { getSession } from "@/app/lib/auth/getSession";
 
 export async function getAllCarriers(searchParams = {}) {
-  await connectDB();
+  const [, session] = await Promise.all([connectDB(), getSession()]);
+
   try {
     const page = parseInt(searchParams.page) || 1;
     const limit = parseInt(searchParams.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const session = await getSession();
     if (!session) {
-      return {
-        carriers: [],
-        pagination: {
-          page: 1,
-          limit: 10,
-          total: 0,
-          totalPages: 0,
-          hasNextPage: false,
-          hasPrevPage: false,
-        },
-      };
+      return buildEmptyResponse();
     }
 
-    // Build carrier match conditions
     const carrierMatchConditions = [];
 
-    // Filter by userId - super admin can filter by any user via searchParams, others use their own userId
     if (searchParams.userId && session.role === "super_admin") {
-      // Super admin filtering by specific user
       if (mongoose.Types.ObjectId.isValid(searchParams.userId)) {
         carrierMatchConditions.push({
           userId: new mongoose.Types.ObjectId(searchParams.userId),
         });
       }
     } else if (session.role !== "super_admin" && session.userId) {
-      // Regular users see only their own carriers
       if (mongoose.Types.ObjectId.isValid(session.userId)) {
         carrierMatchConditions.push({
           userId: new mongoose.Types.ObjectId(session.userId),
@@ -52,12 +38,10 @@ export async function getAllCarriers(searchParams = {}) {
       }
     }
 
-    // Filter by carrier type
     if (searchParams.type) {
       carrierMatchConditions.push({ type: searchParams.type });
     }
 
-    // Filter by active/inactive status
     if (searchParams.isActive !== undefined && searchParams.isActive !== "") {
       const isActiveValue =
         searchParams.isActive === "true" || searchParams.isActive === true;
@@ -74,67 +58,43 @@ export async function getAllCarriers(searchParams = {}) {
       }
     }
 
-    // Filter by carrier name
+    // Carrier name filter
     if (searchParams.carrierName) {
-      const carrierNameFilter = decodeURIComponent(
-        searchParams.carrierName,
-      ).trim();
-      if (carrierNameFilter) {
-        const escapedCarrierName = carrierNameFilter.replace(
-          /[.*+?^${}()|[\]\\]/g,
-          "\\$&",
-        );
+      const name = decodeURIComponent(searchParams.carrierName).trim();
+      if (name) {
         carrierMatchConditions.push({
-          carrierName: { $regex: escapedCarrierName, $options: "i" },
+          carrierName: { $regex: escapeRegex(name), $options: "i" },
         });
       }
     }
 
-    // Filter by trip number (supports comma-separated values)
+    // Trip number filter (supports comma-separated values)
     if (searchParams.tripNumber) {
-      const tripNumberFilter = decodeURIComponent(
-        searchParams.tripNumber,
-      ).trim();
-      if (tripNumberFilter) {
-        // Split by comma and trim each trip number
-        const tripNumbers = tripNumberFilter
+      const raw = decodeURIComponent(searchParams.tripNumber).trim();
+      if (raw) {
+        const tripNumbers = raw
           .split(",")
           .map((tn) => tn.trim())
-          .filter((tn) => tn);
-        if (tripNumbers.length > 0) {
-          // Use regex for single trip number, $or for multiple
-          if (tripNumbers.length === 1) {
-            const escapedTripNumber = tripNumbers[0].replace(
-              /[.*+?^${}()|[\]\\]/g,
-              "\\$&",
-            );
-            carrierMatchConditions.push({
-              tripNumber: { $regex: escapedTripNumber, $options: "i" },
-            });
-          } else {
-            // For multiple trip numbers, use $or with regex for each
-            carrierMatchConditions.push({
-              $or: tripNumbers.map((tn) => {
-                const escaped = tn.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-                return { tripNumber: { $regex: escaped, $options: "i" } };
-              }),
-            });
-          }
+          .filter(Boolean);
+        if (tripNumbers.length === 1) {
+          carrierMatchConditions.push({
+            tripNumber: { $regex: escapeRegex(tripNumbers[0]), $options: "i" },
+          });
+        } else if (tripNumbers.length > 1) {
+          carrierMatchConditions.push({
+            $or: tripNumbers.map((tn) => ({
+              tripNumber: { $regex: escapeRegex(tn), $options: "i" },
+            })),
+          });
         }
       }
     }
 
     // Global search across multiple fields
     if (searchParams.globalSearch) {
-      const globalSearchTerm = decodeURIComponent(
-        searchParams.globalSearch,
-      ).trim();
-      if (globalSearchTerm) {
-        const escapedSearch = globalSearchTerm.replace(
-          /[.*+?^${}()|[\]\\]/g,
-          "\\$&",
-        );
-        const searchRegex = { $regex: escapedSearch, $options: "i" };
+      const term = decodeURIComponent(searchParams.globalSearch).trim();
+      if (term) {
+        const searchRegex = { $regex: escapeRegex(term), $options: "i" };
         carrierMatchConditions.push({
           $or: [
             { tripNumber: searchRegex },
@@ -147,7 +107,7 @@ export async function getAllCarriers(searchParams = {}) {
       }
     }
 
-    // Date filter for carriers
+    // Carrier date filter
     if (searchParams.startDate && searchParams.endDate) {
       const startDate = new Date(searchParams.startDate);
       startDate.setHours(0, 0, 0, 0);
@@ -156,50 +116,46 @@ export async function getAllCarriers(searchParams = {}) {
       carrierMatchConditions.push({ date: { $gte: startDate, $lte: endDate } });
     }
 
-    // Build car lookup match conditions
     const carLookupMatchConditions = [
       { $expr: { $eq: ["$carrier", "$$carrierId"] } },
     ];
 
-    // Company filter for cars
+    // Company filter (cars)
     if (searchParams.company) {
-      let companyFilter = decodeURIComponent(searchParams.company);
-      companyFilter = companyFilter.replace(/\+/g, " ").trim();
-      const escapedCompany = companyFilter.replace(
-        /[.*+?^${}()|[\]\\]/g,
-        "\\$&",
-      );
-      carLookupMatchConditions.push({
-        companyName: { $regex: `^${escapedCompany}$`, $options: "i" },
-      });
+      const company = decodeURIComponent(searchParams.company)
+        .replace(/\+/g, " ")
+        .trim();
+      if (company) {
+        carLookupMatchConditions.push({
+          companyName: { $regex: `^${escapeRegex(company)}$`, $options: "i" },
+        });
+      }
     }
 
-    // Date filter for cars
+    // Date filter (cars)
     if (searchParams.startDate || searchParams.endDate) {
       const dateQuery = {};
       if (searchParams.startDate) {
-        const startDate = new Date(searchParams.startDate);
-        startDate.setHours(0, 0, 0, 0);
-        dateQuery.$gte = startDate;
+        const sd = new Date(searchParams.startDate);
+        sd.setHours(0, 0, 0, 0);
+        dateQuery.$gte = sd;
       }
       if (searchParams.endDate) {
-        const endDate = new Date(searchParams.endDate);
-        endDate.setHours(23, 59, 59, 999);
-        dateQuery.$lte = endDate;
+        const ed = new Date(searchParams.endDate);
+        ed.setHours(23, 59, 59, 999);
+        dateQuery.$lte = ed;
       }
       if (Object.keys(dateQuery).length > 0) {
         carLookupMatchConditions.push({ date: dateQuery });
       }
     }
 
+    const hasCarFilters = carLookupMatchConditions.length > 1;
     const carLookupMatch =
       carLookupMatchConditions.length === 1
         ? carLookupMatchConditions[0]
         : { $and: carLookupMatchConditions };
 
-    const hasCarFilters = carLookupMatchConditions.length > 1; // More than just the carrier match
-
-    // Build carrier match stage
     const carrierMatch =
       carrierMatchConditions.length === 0
         ? {}
@@ -207,9 +163,6 @@ export async function getAllCarriers(searchParams = {}) {
           ? carrierMatchConditions[0]
           : { $and: carrierMatchConditions };
 
-    // Performance: run count+totals and page results in parallel. Count/totals use a
-    // lightweight cars lookup (group by carrier for sum/count only). Page results do
-    // sort/skip/limit first, then full lookups only for the current page (not all carriers).
     const carsSummaryLookup = {
       from: "cars",
       let: { carrierId: "$_id" },
@@ -226,271 +179,158 @@ export async function getAllCarriers(searchParams = {}) {
       as: "carSummary",
     };
 
-    const skipTotals = searchParams.skipTotals === true || searchParams.skipTotals === "true";
-
-    let carriers;
-    let total;
-    let totals;
-
-    if (skipTotals) {
-      // Pagination only: one query with $facet to get total count + page results (no totals aggregation)
-      const facetInputStages = [
-        { $match: carrierMatch },
-        { $lookup: carsSummaryLookup },
-        {
-          $addFields: {
-            carCount: {
-              $ifNull: [{ $arrayElemAt: ["$carSummary.carCount", 0] }, 0],
-            },
-            totalAmount: {
-              $ifNull: [{ $arrayElemAt: ["$carSummary.totalAmount", 0] }, 0],
-            },
+    // Shared base stages: match carriers → attach summary → optionally filter by car presence
+    const baseStages = [
+      { $match: carrierMatch },
+      { $lookup: carsSummaryLookup },
+      {
+        $addFields: {
+          carCount: {
+            $ifNull: [{ $arrayElemAt: ["$carSummary.carCount", 0] }, 0],
+          },
+          totalAmount: {
+            $ifNull: [{ $arrayElemAt: ["$carSummary.totalAmount", 0] }, 0],
           },
         },
-        ...(hasCarFilters ? [{ $match: { carCount: { $gt: 0 } } }] : []),
+      },
+      ...(hasCarFilters ? [{ $match: { carCount: { $gt: 0 } } }] : []),
+    ];
+
+    const pageDetailStages = [
+      { $sort: { date: -1, createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+      {
+        $addFields: {
+          profit: {
+            $subtract: ["$totalAmount", { $ifNull: ["$totalExpense", 0] }],
+          },
+        },
+      },
+      // Full car data for this page only
+      {
+        $lookup: {
+          from: "cars",
+          let: { carrierId: "$_id" },
+          pipeline: [{ $match: carLookupMatch }],
+          as: "cars",
+        },
+      },
+      // User
+      {
+        $lookup: {
+          from: "users",
+          localField: "userId",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      { $addFields: { user: { $arrayElemAt: ["$user", 0] } } },
+      // Truck — $unwind is safe: `truck` is a single ObjectId ref, not an array
+      {
+        $lookup: {
+          from: "trucks",
+          localField: "truck",
+          foreignField: "_id",
+          as: "truckData",
+        },
+      },
+      { $unwind: { path: "$truckData", preserveNullAndEmptyArrays: true } },
+      // Drivers within the truck
+      {
+        $lookup: {
+          from: "drivers",
+          localField: "truckData.drivers",
+          foreignField: "_id",
+          as: "truckData.drivers",
+        },
+      },
+      {
+        $project: {
+          tripNumber: 1,
+          name: 1,
+          type: 1,
+          date: 1,
+          totalExpense: 1,
+          truck: 1,
+          truckData: {
+            _id: 1,
+            name: 1,
+            number: 1,
+            drivers: { _id: 1, name: 1 },
+          },
+          carrierName: 1,
+          driverName: 1,
+          details: 1,
+          notes: 1,
+          distance: 1,
+          meterReadingAtTrip: 1,
+          isActive: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          carCount: 1,
+          totalAmount: 1,
+          profit: 1,
+          cars: 1,
+          userId: 1,
+          user: { username: 1, role: 1 },
+        },
+      },
+    ];
+
+    const skipTotals =
+      searchParams.skipTotals === true || searchParams.skipTotals === "true";
+
+    const facetBranches = {
+      total: [{ $count: "count" }],
+      results: pageDetailStages,
+    };
+
+    if (!skipTotals) {
+      facetBranches.totals = [
+        {
+          $group: {
+            _id: null,
+            totalCars: { $sum: "$carCount" },
+            totalAmount: { $sum: "$totalAmount" },
+            totalExpenses: { $sum: { $ifNull: ["$totalExpense", 0] } },
+            totalTrips: { $sum: 1 },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            totalCars: { $ifNull: ["$totalCars", 0] },
+            totalAmount: { $ifNull: ["$totalAmount", 0] },
+            totalExpenses: { $ifNull: ["$totalExpenses", 0] },
+            totalProfit: {
+              $subtract: ["$totalAmount", { $ifNull: ["$totalExpenses", 0] }],
+            },
+            totalTrips: { $ifNull: ["$totalTrips", 0] },
+          },
+        },
       ];
-      const [pageFacetResult] = await Carrier.aggregate([
-        ...facetInputStages,
-        {
-          $facet: {
-            total: [{ $count: "count" }],
-            results: [
-              { $sort: { date: -1, createdAt: -1 } },
-              { $skip: skip },
-              { $limit: limit },
-              {
-                $lookup: {
-                  from: "cars",
-                  let: { carrierId: "$_id" },
-                  pipeline: [{ $match: carLookupMatch }],
-                  as: "cars",
-                },
-              },
-              {
-                $lookup: {
-                  from: "users",
-                  localField: "userId",
-                  foreignField: "_id",
-                  as: "user",
-                },
-              },
-              {
-                $addFields: { user: { $arrayElemAt: ["$user", 0] } },
-              },
-              {
-                $lookup: {
-                  from: "trucks",
-                  localField: "truck",
-                  foreignField: "_id",
-                  as: "truckData",
-                },
-              },
-              {
-                $unwind: { path: "$truckData", preserveNullAndEmptyArrays: true },
-              },
-              {
-                $lookup: {
-                  from: "drivers",
-                  localField: "truckData.drivers",
-                  foreignField: "_id",
-                  as: "truckData.drivers",
-                },
-              },
-              {
-                $project: {
-                  tripNumber: 1,
-                  name: 1,
-                  type: 1,
-                  date: 1,
-                  totalExpense: 1,
-                  truck: 1,
-                  truckData: { _id: 1, name: 1, number: 1, drivers: { _id: 1, name: 1 } },
-                  carrierName: 1,
-                  driverName: 1,
-                  details: 1,
-                  notes: 1,
-                  distance: 1,
-                  meterReadingAtTrip: 1,
-                  isActive: 1,
-                  createdAt: 1,
-                  updatedAt: 1,
-                  carCount: 1,
-                  totalAmount: 1,
-                  profit: 1,
-                  cars: 1,
-                  userId: 1,
-                  user: { username: 1, role: 1 },
-                },
-              },
-            ],
-          },
-        },
-      ]);
-      carriers = pageFacetResult?.results || [];
-      total = pageFacetResult?.total?.[0]?.count ?? 0;
-      totals = undefined; // caller keeps previous totals
-    } else {
-      // Full load: count+totals and page results in parallel
-      const [countTotalsResult, pageResults] = await Promise.all([
-        Carrier.aggregate([
-          { $match: carrierMatch },
-          { $lookup: carsSummaryLookup },
-          {
-            $addFields: {
-              carCount: {
-                $ifNull: [{ $arrayElemAt: ["$carSummary.carCount", 0] }, 0],
-              },
-              totalAmount: {
-                $ifNull: [{ $arrayElemAt: ["$carSummary.totalAmount", 0] }, 0],
-              },
-            },
-          },
-          ...(hasCarFilters ? [{ $match: { carCount: { $gt: 0 } } }] : []),
-          {
-            $facet: {
-              total: [{ $count: "count" }],
-              totals: [
-                {
-                  $group: {
-                    _id: null,
-                    totalCars: { $sum: "$carCount" },
-                    totalAmount: { $sum: "$totalAmount" },
-                    totalExpenses: { $sum: { $ifNull: ["$totalExpense", 0] } },
-                    totalTrips: { $sum: 1 },
-                  },
-                },
-                {
-                  $project: {
-                    _id: 0,
-                    totalCars: { $ifNull: ["$totalCars", 0] },
-                    totalAmount: { $ifNull: ["$totalAmount", 0] },
-                    totalExpenses: { $ifNull: ["$totalExpenses", 0] },
-                    totalProfit: {
-                      $subtract: [
-                        "$totalAmount",
-                        { $ifNull: ["$totalExpenses", 0] },
-                      ],
-                    },
-                    totalTrips: { $ifNull: ["$totalTrips", 0] },
-                  },
-                },
-              ],
-            },
-          },
-        ]).then(([r]) => r),
-        Carrier.aggregate([
-          { $match: carrierMatch },
-          { $lookup: carsSummaryLookup },
-          {
-            $addFields: {
-              carCount: {
-                $ifNull: [{ $arrayElemAt: ["$carSummary.carCount", 0] }, 0],
-              },
-              totalAmount: {
-                $ifNull: [{ $arrayElemAt: ["$carSummary.totalAmount", 0] }, 0],
-              },
-              profit: {
-                $subtract: [
-                  { $ifNull: [{ $arrayElemAt: ["$carSummary.totalAmount", 0] }, 0] },
-                  { $ifNull: ["$totalExpense", 0] },
-                ],
-              },
-            },
-          },
-          ...(hasCarFilters ? [{ $match: { carCount: { $gt: 0 } } }] : []),
-          { $sort: { date: -1, createdAt: -1 } },
-          { $skip: skip },
-          { $limit: limit },
-          {
-            $lookup: {
-              from: "cars",
-              let: { carrierId: "$_id" },
-              pipeline: [{ $match: carLookupMatch }],
-              as: "cars",
-            },
-          },
-          {
-            $lookup: {
-              from: "users",
-              localField: "userId",
-              foreignField: "_id",
-              as: "user",
-            },
-          },
-          {
-            $addFields: {
-              user: { $arrayElemAt: ["$user", 0] },
-            },
-          },
-          {
-            $lookup: {
-              from: "trucks",
-              localField: "truck",
-              foreignField: "_id",
-              as: "truckData",
-            },
-          },
-          {
-            $unwind: {
-              path: "$truckData",
-              preserveNullAndEmptyArrays: true,
-            },
-          },
-          {
-            $lookup: {
-              from: "drivers",
-              localField: "truckData.drivers",
-              foreignField: "_id",
-              as: "truckData.drivers",
-            },
-          },
-          {
-            $project: {
-              tripNumber: 1,
-              name: 1,
-              type: 1,
-              date: 1,
-              totalExpense: 1,
-              truck: 1,
-              truckData: {
-                _id: 1,
-                name: 1,
-                number: 1,
-                drivers: { _id: 1, name: 1 },
-              },
-              carrierName: 1,
-              driverName: 1,
-              details: 1,
-              notes: 1,
-              distance: 1,
-              meterReadingAtTrip: 1,
-              isActive: 1,
-              createdAt: 1,
-              updatedAt: 1,
-              carCount: 1,
-              totalAmount: 1,
-              profit: 1,
-              cars: 1,
-              userId: 1,
-              user: { username: 1, role: 1 },
-            },
-          },
-        ]),
-      ]);
-      carriers = pageResults || [];
-      total = countTotalsResult?.total?.[0]?.count ?? 0;
-      totals = countTotalsResult?.totals?.[0] || {
-        totalCars: 0,
-        totalAmount: 0,
-        totalExpenses: 0,
-        totalProfit: 0,
-        totalTrips: 0,
-      };
     }
+
+    const [facetResult] = await Carrier.aggregate([
+      ...baseStages,
+      { $facet: facetBranches },
+    ]);
+
+    const carriers = facetResult?.results || [];
+    const total = facetResult?.total?.[0]?.count ?? 0;
+    const totals = skipTotals
+      ? undefined
+      : facetResult?.totals?.[0] || {
+          totalCars: 0,
+          totalAmount: 0,
+          totalExpenses: 0,
+          totalProfit: 0,
+          totalTrips: 0,
+        };
 
     const totalPages = Math.ceil(total / limit);
 
-    // Convert ObjectIds to strings
     const carriersWithIds = carriers.map((carrier) => ({
       ...carrier,
       _id: carrier._id.toString(),
@@ -514,6 +354,7 @@ export async function getAllCarriers(searchParams = {}) {
         hasPrevPage: page > 1,
       },
     };
+
     if (totals != null) {
       response.totals = {
         totalCars: totals.totalCars || 0,
@@ -523,27 +364,36 @@ export async function getAllCarriers(searchParams = {}) {
         totalTrips: totals.totalTrips || 0,
       };
     }
+
     return response;
   } catch (error) {
-    return {
-      carriers: [],
-      pagination: {
-        page: 1,
-        limit: 10,
-        total: 0,
-        totalPages: 0,
-        hasNextPage: false,
-        hasPrevPage: false,
-      },
-      totals: {
-        totalCars: 0,
-        totalAmount: 0,
-        totalExpenses: 0,
-        totalProfit: 0,
-        totalTrips: 0,
-      },
-    };
+    return buildEmptyResponse();
   }
+}
+
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildEmptyResponse() {
+  return {
+    carriers: [],
+    pagination: {
+      page: 1,
+      limit: 10,
+      total: 0,
+      totalPages: 0,
+      hasNextPage: false,
+      hasPrevPage: false,
+    },
+    totals: {
+      totalCars: 0,
+      totalAmount: 0,
+      totalExpenses: 0,
+      totalProfit: 0,
+      totalTrips: 0,
+    },
+  };
 }
 
 export async function getCarrierById(carrierId) {

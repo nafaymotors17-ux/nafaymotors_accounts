@@ -15,6 +15,29 @@ function sameFilters(a, b) {
   return FILTER_KEYS.every((k) => (a?.[k] || "") === (b?.[k] || ""));
 }
 
+function buildParamsFromSearchParams(searchParams) {
+  const params = {};
+  const page = searchParams.get("page");
+  const limit = searchParams.get("limit");
+  const startDate = searchParams.get("startDate");
+  const endDate = searchParams.get("endDate");
+  const company = searchParams.get("company");
+  const carrierName = searchParams.get("carrierName");
+  const isActive = searchParams.get("isActive");
+  const userId = searchParams.get("userId");
+  const globalSearch = searchParams.get("globalSearch");
+  if (page) params.page = page;
+  if (limit) params.limit = limit;
+  if (startDate) params.startDate = startDate;
+  if (endDate) params.endDate = endDate;
+  if (company) params.company = company;
+  if (carrierName) params.carrierName = carrierName;
+  if (isActive) params.isActive = isActive;
+  if (userId) params.userId = userId;
+  if (globalSearch) params.globalSearch = globalSearch;
+  return params;
+}
+
 export default function CarriersPage() {
   const [selectedTripIds, setSelectedTripIds] = useState([]);
   const [carriersData, setCarriersData] = useState(null);
@@ -24,86 +47,48 @@ export default function CarriersPage() {
   const [error, setError] = useState(null);
   const prevQueryParamsRef = useRef(null);
   const searchParams = useSearchParams();
+  const searchParamsRef = useRef(searchParams);
+  searchParamsRef.current = searchParams;
   const { user } = useUser();
 
-  const queryParams = useMemo(() => {
-    const params = {};
-    const page = searchParams.get("page");
-    const limit = searchParams.get("limit");
-    const startDate = searchParams.get("startDate");
-    const endDate = searchParams.get("endDate");
-    const company = searchParams.get("company");
-    const carrierName = searchParams.get("carrierName");
-    const isActive = searchParams.get("isActive");
-    const userId = searchParams.get("userId");
-    const globalSearch = searchParams.get("globalSearch");
-    if (page) params.page = page;
-    if (limit) params.limit = limit;
-    if (startDate) params.startDate = startDate;
-    if (endDate) params.endDate = endDate;
-    if (company) params.company = company;
-    if (carrierName) params.carrierName = carrierName;
-    if (isActive) params.isActive = isActive;
-    if (userId) params.userId = userId;
-    if (globalSearch) params.globalSearch = globalSearch;
-    return params;
-  }, [searchParams]);
+  const queryParams = useMemo(() => buildParamsFromSearchParams(searchParams), [searchParams]);
 
-  const loadCarriers = useCallback(
-    async (opts = {}) => {
-      // After create/update/delete we call with no opts → full load. When only page/limit changed, pass { paginationOnly: true }.
-      const skipTotals =
-        opts.skipTotals === true ||
-        (opts.paginationOnly === true &&
-          prevQueryParamsRef.current != null &&
-          sameFilters(queryParams, prevQueryParamsRef.current) &&
-          (queryParams.page !== prevQueryParamsRef.current?.page ||
-            queryParams.limit !== prevQueryParamsRef.current?.limit));
-      const params = skipTotals ? { ...queryParams, skipTotals: true } : queryParams;
-      try {
-        const res = await getAllCarriers(params);
-        if (skipTotals) {
-          setCarriersData((prev) => ({ ...res, totals: prev?.totals ?? res?.totals }));
-        } else {
-          setCarriersData(res);
-        }
-        prevQueryParamsRef.current = queryParams;
-      } catch (err) {
-        setError(err?.message || "Failed to load carriers");
-        setCarriersData({ carriers: [], pagination: null, totals: null });
-      }
-    },
-    [queryParams],
-  );
+  const queryKey = useMemo(() => searchParams.toString(), [searchParams]);
 
-  const loadCompanies = useCallback(async () => {
+  const loadCarriers = useCallback(async (opts = {}) => {
+    const params = buildParamsFromSearchParams(searchParamsRef.current);
+    const skipTotals =
+      opts.skipTotals === true ||
+      (opts.paginationOnly === true &&
+        prevQueryParamsRef.current != null &&
+        sameFilters(params, prevQueryParamsRef.current) &&
+        (params.page !== prevQueryParamsRef.current?.page ||
+          params.limit !== prevQueryParamsRef.current?.limit));
+    const requestParams = skipTotals ? { ...params, skipTotals: true } : params;
     try {
-      const res = await getAllCompanies();
-      setCompanies(res?.companies || []);
-    } catch {
-      setCompanies([]);
+      const res = await getAllCarriers(requestParams);
+      if (skipTotals) {
+        setCarriersData((prev) => ({ ...res, totals: prev?.totals ?? res?.totals }));
+      } else {
+        setCarriersData(res);
+      }
+      prevQueryParamsRef.current = params;
+    } catch (err) {
+      setError(err?.message || "Failed to load carriers");
+      setCarriersData({ carriers: [], pagination: null, totals: null });
     }
   }, []);
-
-  const loadUsers = useCallback(async () => {
-    if (user?.role !== "super_admin") return;
-    try {
-      const res = await getAllUsersForSelection();
-      setUsers(res?.users || []);
-    } catch {
-      setUsers([]);
-    }
-  }, [user]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    const params = buildParamsFromSearchParams(searchParamsRef.current);
     const onlyPagination =
       prevQueryParamsRef.current != null &&
-      sameFilters(queryParams, prevQueryParamsRef.current) &&
-      (queryParams.page !== prevQueryParamsRef.current?.page ||
-        queryParams.limit !== prevQueryParamsRef.current?.limit);
+      sameFilters(params, prevQueryParamsRef.current) &&
+      (params.page !== prevQueryParamsRef.current?.page ||
+        params.limit !== prevQueryParamsRef.current?.limit);
     Promise.all([
       loadCarriers({ paginationOnly: onlyPagination }),
       getAllCompanies().then(
@@ -120,7 +105,7 @@ export default function CarriersPage() {
     return () => {
       cancelled = true;
     };
-  }, [queryParams, user?.userId, user?.role, loadCarriers]);
+  }, [queryKey, user?.userId, user?.role, loadCarriers]);
 
   const carriers = carriersData?.carriers || [];
   const pagination = carriersData?.pagination;
