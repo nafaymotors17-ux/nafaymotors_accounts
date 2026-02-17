@@ -22,7 +22,10 @@ export async function GET(request, { params }) {
     }
 
     if (!expenseId || !mongoose.Types.ObjectId.isValid(expenseId)) {
-      return NextResponse.json({ error: "Invalid expense ID" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid expense ID" },
+        { status: 400 },
+      );
     }
 
     // Get truck to check permissions
@@ -32,12 +35,18 @@ export async function GET(request, { params }) {
     }
 
     // Check permissions
-    if (session.role !== "super_admin" && truck.userId.toString() !== session.userId) {
+    if (
+      session.role !== "super_admin" &&
+      truck.userId.toString() !== session.userId
+    ) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
     // Get expense
-    const expense = await Expense.findOne({ _id: expenseId, truck: truckId }).lean();
+    const expense = await Expense.findOne({
+      _id: expenseId,
+      truck: truckId,
+    }).lean();
 
     if (!expense) {
       return NextResponse.json({ error: "Expense not found" }, { status: 404 });
@@ -50,7 +59,7 @@ export async function GET(request, { params }) {
     console.error("Error fetching expense:", error);
     return NextResponse.json(
       { error: "Failed to fetch expense" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -73,7 +82,10 @@ export async function PUT(request, { params }) {
     }
 
     if (!expenseId || !mongoose.Types.ObjectId.isValid(expenseId)) {
-      return NextResponse.json({ error: "Invalid expense ID" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid expense ID" },
+        { status: 400 },
+      );
     }
 
     // Get truck to check permissions
@@ -83,26 +95,44 @@ export async function PUT(request, { params }) {
     }
 
     // Check permissions
-    if (session.role !== "super_admin" && truck.userId.toString() !== session.userId) {
+    if (
+      session.role !== "super_admin" &&
+      truck.userId.toString() !== session.userId
+    ) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
     // Get expense
-    const existingExpense = await Expense.findOne({ _id: expenseId, truck: truckId });
+    const existingExpense = await Expense.findOne({
+      _id: expenseId,
+      truck: truckId,
+    });
     if (!existingExpense) {
       return NextResponse.json({ error: "Expense not found" }, { status: 404 });
     }
 
     const body = await request.json();
-    const { category, amount, details, liters, pricePerLiter, date, tyreNumber, tyreInfo } = body;
+    const {
+      category,
+      amount,
+      details,
+      liters,
+      pricePerLiter,
+      date,
+      tyreNumber,
+      tyreInfo,
+    } = body;
 
     // Validate category if provided - allow maintenance, fuel, tyre, and others for trucks
     if (category) {
       const validCategories = ["maintenance", "fuel", "tyre", "others"];
       if (!validCategories.includes(category)) {
         return NextResponse.json(
-          { error: "Invalid category. Only maintenance, fuel, tyre, and others are allowed for trucks." },
-          { status: 400 }
+          {
+            error:
+              "Invalid category. Only maintenance, fuel, tyre, and others are allowed for trucks.",
+          },
+          { status: 400 },
         );
       }
     }
@@ -118,11 +148,32 @@ export async function PUT(request, { params }) {
     // Update expense
     existingExpense.category = category || existingExpense.category;
     existingExpense.amount = finalAmount;
-    existingExpense.details = details !== undefined ? details : existingExpense.details;
-    existingExpense.liters = category === "fuel" && liters ? parseFloat(liters) : (category !== "fuel" ? undefined : existingExpense.liters);
-    existingExpense.pricePerLiter = category === "fuel" && pricePerLiter ? parseFloat(pricePerLiter) : (category !== "fuel" ? undefined : existingExpense.pricePerLiter);
-    existingExpense.tyreNumber = category === "tyre" && tyreNumber !== undefined ? tyreNumber.trim() : (category !== "tyre" ? undefined : existingExpense.tyreNumber);
-    existingExpense.tyreInfo = category === "tyre" && tyreInfo !== undefined ? tyreInfo.trim() : (category !== "tyre" ? undefined : existingExpense.tyreInfo);
+    existingExpense.details =
+      details !== undefined ? details : existingExpense.details;
+    existingExpense.liters =
+      category === "fuel" && liters
+        ? parseFloat(liters)
+        : category !== "fuel"
+          ? undefined
+          : existingExpense.liters;
+    existingExpense.pricePerLiter =
+      category === "fuel" && pricePerLiter
+        ? parseFloat(pricePerLiter)
+        : category !== "fuel"
+          ? undefined
+          : existingExpense.pricePerLiter;
+    existingExpense.tyreNumber =
+      category === "tyre" && tyreNumber !== undefined
+        ? tyreNumber.trim()
+        : category !== "tyre"
+          ? undefined
+          : existingExpense.tyreNumber;
+    existingExpense.tyreInfo =
+      category === "tyre" && tyreInfo !== undefined
+        ? tyreInfo.trim()
+        : category !== "tyre"
+          ? undefined
+          : existingExpense.tyreInfo;
     existingExpense.date = date ? new Date(date) : existingExpense.date;
 
     await existingExpense.save();
@@ -135,7 +186,7 @@ export async function PUT(request, { params }) {
     console.error("Error updating expense:", error);
     return NextResponse.json(
       { error: "Failed to update expense" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -158,7 +209,10 @@ export async function DELETE(request, { params }) {
     }
 
     if (!expenseId || !mongoose.Types.ObjectId.isValid(expenseId)) {
-      return NextResponse.json({ error: "Invalid expense ID" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid expense ID" },
+        { status: 400 },
+      );
     }
 
     // Get truck to check permissions
@@ -168,12 +222,18 @@ export async function DELETE(request, { params }) {
     }
 
     // Check permissions
-    if (session.role !== "super_admin" && truck.userId.toString() !== session.userId) {
+    if (
+      session.role !== "super_admin" &&
+      truck.userId.toString() !== session.userId
+    ) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
     // Delete expense
-    const expense = await Expense.findOneAndDelete({ _id: expenseId, truck: truckId });
+    const expense = await Expense.findOneAndDelete({
+      _id: expenseId,
+      truck: truckId,
+    });
 
     if (!expense) {
       return NextResponse.json({ error: "Expense not found" }, { status: 404 });
@@ -187,7 +247,7 @@ export async function DELETE(request, { params }) {
     console.error("Error deleting expense:", error);
     return NextResponse.json(
       { error: "Failed to delete expense" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
