@@ -207,144 +207,288 @@ export async function getAllCarriers(searchParams = {}) {
           ? carrierMatchConditions[0]
           : { $and: carrierMatchConditions };
 
-    // Single aggregation pipeline using $facet to get both results and count in one query
-    const [result] = await Carrier.aggregate([
-      { $match: carrierMatch },
-      {
-        $lookup: {
-          from: "cars",
-          let: { carrierId: "$_id" },
-          pipeline: [{ $match: carLookupMatch }],
-          as: "cars",
-        },
-      },
-      {
-        $lookup: {
-          from: "users",
-          localField: "userId",
-          foreignField: "_id",
-          as: "user",
-        },
-      },
-      {
-        $addFields: {
-          carCount: { $size: "$cars" },
-          totalAmount: { $sum: "$cars.amount" },
-          profit: {
-            $subtract: ["$totalAmount", { $ifNull: ["$totalExpense", 0] }],
+    // Performance: run count+totals and page results in parallel. Count/totals use a
+    // lightweight cars lookup (group by carrier for sum/count only). Page results do
+    // sort/skip/limit first, then full lookups only for the current page (not all carriers).
+    const carsSummaryLookup = {
+      from: "cars",
+      let: { carrierId: "$_id" },
+      pipeline: [
+        { $match: carLookupMatch },
+        {
+          $group: {
+            _id: null,
+            totalAmount: { $sum: "$amount" },
+            carCount: { $sum: 1 },
           },
-          user: { $arrayElemAt: ["$user", 0] },
         },
-      },
-      // Filter out carriers with no matching cars when car filters are applied
-      ...(hasCarFilters ? [{ $match: { carCount: { $gt: 0 } } }] : []),
-      {
-        $facet: {
-          // Results pipeline
-          results: [
-            { $sort: { date: -1, createdAt: -1 } },
-            { $skip: skip },
-            { $limit: limit },
-            {
-              $lookup: {
-                from: "trucks",
-                localField: "truck",
-                foreignField: "_id",
-                as: "truckData",
-              },
+      ],
+      as: "carSummary",
+    };
+
+    const skipTotals = searchParams.skipTotals === true || searchParams.skipTotals === "true";
+
+    let carriers;
+    let total;
+    let totals;
+
+    if (skipTotals) {
+      // Pagination only: one query with $facet to get total count + page results (no totals aggregation)
+      const facetInputStages = [
+        { $match: carrierMatch },
+        { $lookup: carsSummaryLookup },
+        {
+          $addFields: {
+            carCount: {
+              $ifNull: [{ $arrayElemAt: ["$carSummary.carCount", 0] }, 0],
             },
-            {
-              $unwind: {
-                path: "$truckData",
-                preserveNullAndEmptyArrays: true,
-              },
+            totalAmount: {
+              $ifNull: [{ $arrayElemAt: ["$carSummary.totalAmount", 0] }, 0],
             },
-            {
-              $lookup: {
-                from: "drivers",
-                localField: "truckData.drivers",
-                foreignField: "_id",
-                as: "truckData.drivers",
+          },
+        },
+        ...(hasCarFilters ? [{ $match: { carCount: { $gt: 0 } } }] : []),
+      ];
+      const [pageFacetResult] = await Carrier.aggregate([
+        ...facetInputStages,
+        {
+          $facet: {
+            total: [{ $count: "count" }],
+            results: [
+              { $sort: { date: -1, createdAt: -1 } },
+              { $skip: skip },
+              { $limit: limit },
+              {
+                $lookup: {
+                  from: "cars",
+                  let: { carrierId: "$_id" },
+                  pipeline: [{ $match: carLookupMatch }],
+                  as: "cars",
+                },
               },
-            },
-            {
-              $project: {
-                tripNumber: 1,
-                name: 1,
-                type: 1,
-                date: 1,
-                totalExpense: 1,
-                truck: 1,
-                truckData: {
-                  _id: 1,
+              {
+                $lookup: {
+                  from: "users",
+                  localField: "userId",
+                  foreignField: "_id",
+                  as: "user",
+                },
+              },
+              {
+                $addFields: { user: { $arrayElemAt: ["$user", 0] } },
+              },
+              {
+                $lookup: {
+                  from: "trucks",
+                  localField: "truck",
+                  foreignField: "_id",
+                  as: "truckData",
+                },
+              },
+              {
+                $unwind: { path: "$truckData", preserveNullAndEmptyArrays: true },
+              },
+              {
+                $lookup: {
+                  from: "drivers",
+                  localField: "truckData.drivers",
+                  foreignField: "_id",
+                  as: "truckData.drivers",
+                },
+              },
+              {
+                $project: {
+                  tripNumber: 1,
                   name: 1,
-                  number: 1,
-                  drivers: {
-                    _id: 1,
-                    name: 1,
+                  type: 1,
+                  date: 1,
+                  totalExpense: 1,
+                  truck: 1,
+                  truckData: { _id: 1, name: 1, number: 1, drivers: { _id: 1, name: 1 } },
+                  carrierName: 1,
+                  driverName: 1,
+                  details: 1,
+                  notes: 1,
+                  distance: 1,
+                  meterReadingAtTrip: 1,
+                  isActive: 1,
+                  createdAt: 1,
+                  updatedAt: 1,
+                  carCount: 1,
+                  totalAmount: 1,
+                  profit: 1,
+                  cars: 1,
+                  userId: 1,
+                  user: { username: 1, role: 1 },
+                },
+              },
+            ],
+          },
+        },
+      ]);
+      carriers = pageFacetResult?.results || [];
+      total = pageFacetResult?.total?.[0]?.count ?? 0;
+      totals = undefined; // caller keeps previous totals
+    } else {
+      // Full load: count+totals and page results in parallel
+      const [countTotalsResult, pageResults] = await Promise.all([
+        Carrier.aggregate([
+          { $match: carrierMatch },
+          { $lookup: carsSummaryLookup },
+          {
+            $addFields: {
+              carCount: {
+                $ifNull: [{ $arrayElemAt: ["$carSummary.carCount", 0] }, 0],
+              },
+              totalAmount: {
+                $ifNull: [{ $arrayElemAt: ["$carSummary.totalAmount", 0] }, 0],
+              },
+            },
+          },
+          ...(hasCarFilters ? [{ $match: { carCount: { $gt: 0 } } }] : []),
+          {
+            $facet: {
+              total: [{ $count: "count" }],
+              totals: [
+                {
+                  $group: {
+                    _id: null,
+                    totalCars: { $sum: "$carCount" },
+                    totalAmount: { $sum: "$totalAmount" },
+                    totalExpenses: { $sum: { $ifNull: ["$totalExpense", 0] } },
+                    totalTrips: { $sum: 1 },
                   },
                 },
-                carrierName: 1,
-                driverName: 1,
-                details: 1,
-                notes: 1,
-                distance: 1,
-                meterReadingAtTrip: 1,
-                isActive: 1,
-                createdAt: 1,
-                updatedAt: 1,
-                carCount: 1,
-                totalAmount: 1,
-                profit: 1,
-                cars: 1,
-                userId: 1,
-                user: { username: 1, role: 1 },
-              },
-            },
-          ],
-          // Count pipeline
-          total: [{ $count: "count" }],
-          // Totals pipeline - calculate aggregations on all matching carriers
-          totals: [
-            {
-              $group: {
-                _id: null,
-                totalCars: { $sum: "$carCount" },
-                totalAmount: { $sum: "$totalAmount" },
-                totalExpenses: { $sum: { $ifNull: ["$totalExpense", 0] } },
-                totalTrips: { $sum: 1 },
-              },
-            },
-            {
-              $project: {
-                _id: 0,
-                totalCars: { $ifNull: ["$totalCars", 0] },
-                totalAmount: { $ifNull: ["$totalAmount", 0] },
-                totalExpenses: { $ifNull: ["$totalExpenses", 0] },
-                totalProfit: {
-                  $subtract: [
-                    "$totalAmount",
-                    { $ifNull: ["$totalExpenses", 0] },
-                  ],
+                {
+                  $project: {
+                    _id: 0,
+                    totalCars: { $ifNull: ["$totalCars", 0] },
+                    totalAmount: { $ifNull: ["$totalAmount", 0] },
+                    totalExpenses: { $ifNull: ["$totalExpenses", 0] },
+                    totalProfit: {
+                      $subtract: [
+                        "$totalAmount",
+                        { $ifNull: ["$totalExpenses", 0] },
+                      ],
+                    },
+                    totalTrips: { $ifNull: ["$totalTrips", 0] },
+                  },
                 },
-                totalTrips: { $ifNull: ["$totalTrips", 0] },
+              ],
+            },
+          },
+        ]).then(([r]) => r),
+        Carrier.aggregate([
+          { $match: carrierMatch },
+          { $lookup: carsSummaryLookup },
+          {
+            $addFields: {
+              carCount: {
+                $ifNull: [{ $arrayElemAt: ["$carSummary.carCount", 0] }, 0],
+              },
+              totalAmount: {
+                $ifNull: [{ $arrayElemAt: ["$carSummary.totalAmount", 0] }, 0],
+              },
+              profit: {
+                $subtract: [
+                  { $ifNull: [{ $arrayElemAt: ["$carSummary.totalAmount", 0] }, 0] },
+                  { $ifNull: ["$totalExpense", 0] },
+                ],
               },
             },
-          ],
-        },
-      },
-    ]);
+          },
+          ...(hasCarFilters ? [{ $match: { carCount: { $gt: 0 } } }] : []),
+          { $sort: { date: -1, createdAt: -1 } },
+          { $skip: skip },
+          { $limit: limit },
+          {
+            $lookup: {
+              from: "cars",
+              let: { carrierId: "$_id" },
+              pipeline: [{ $match: carLookupMatch }],
+              as: "cars",
+            },
+          },
+          {
+            $lookup: {
+              from: "users",
+              localField: "userId",
+              foreignField: "_id",
+              as: "user",
+            },
+          },
+          {
+            $addFields: {
+              user: { $arrayElemAt: ["$user", 0] },
+            },
+          },
+          {
+            $lookup: {
+              from: "trucks",
+              localField: "truck",
+              foreignField: "_id",
+              as: "truckData",
+            },
+          },
+          {
+            $unwind: {
+              path: "$truckData",
+              preserveNullAndEmptyArrays: true,
+            },
+          },
+          {
+            $lookup: {
+              from: "drivers",
+              localField: "truckData.drivers",
+              foreignField: "_id",
+              as: "truckData.drivers",
+            },
+          },
+          {
+            $project: {
+              tripNumber: 1,
+              name: 1,
+              type: 1,
+              date: 1,
+              totalExpense: 1,
+              truck: 1,
+              truckData: {
+                _id: 1,
+                name: 1,
+                number: 1,
+                drivers: { _id: 1, name: 1 },
+              },
+              carrierName: 1,
+              driverName: 1,
+              details: 1,
+              notes: 1,
+              distance: 1,
+              meterReadingAtTrip: 1,
+              isActive: 1,
+              createdAt: 1,
+              updatedAt: 1,
+              carCount: 1,
+              totalAmount: 1,
+              profit: 1,
+              cars: 1,
+              userId: 1,
+              user: { username: 1, role: 1 },
+            },
+          },
+        ]),
+      ]);
+      carriers = pageResults || [];
+      total = countTotalsResult?.total?.[0]?.count ?? 0;
+      totals = countTotalsResult?.totals?.[0] || {
+        totalCars: 0,
+        totalAmount: 0,
+        totalExpenses: 0,
+        totalProfit: 0,
+        totalTrips: 0,
+      };
+    }
 
-    const carriers = result.results || [];
-    const total = result.total[0]?.count || 0;
     const totalPages = Math.ceil(total / limit);
-    const totals = result.totals[0] || {
-      totalCars: 0,
-      totalAmount: 0,
-      totalExpenses: 0,
-      totalProfit: 0,
-      totalTrips: 0,
-    };
 
     // Convert ObjectIds to strings
     const carriersWithIds = carriers.map((carrier) => ({
@@ -359,7 +503,7 @@ export async function getAllCarriers(searchParams = {}) {
       })),
     }));
 
-    return {
+    const response = {
       carriers: JSON.parse(JSON.stringify(carriersWithIds)),
       pagination: {
         page,
@@ -369,14 +513,17 @@ export async function getAllCarriers(searchParams = {}) {
         hasNextPage: page < totalPages,
         hasPrevPage: page > 1,
       },
-      totals: {
+    };
+    if (totals != null) {
+      response.totals = {
         totalCars: totals.totalCars || 0,
         totalAmount: totals.totalAmount || 0,
         totalExpenses: totals.totalExpenses || 0,
         totalProfit: totals.totalProfit || 0,
         totalTrips: totals.totalTrips || 0,
-      },
-    };
+      };
+    }
+    return response;
   } catch (error) {
     return {
       carriers: [],
@@ -387,6 +534,13 @@ export async function getAllCarriers(searchParams = {}) {
         totalPages: 0,
         hasNextPage: false,
         hasPrevPage: false,
+      },
+      totals: {
+        totalCars: 0,
+        totalAmount: 0,
+        totalExpenses: 0,
+        totalProfit: 0,
+        totalTrips: 0,
       },
     };
   }
