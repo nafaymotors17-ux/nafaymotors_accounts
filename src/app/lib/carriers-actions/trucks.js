@@ -328,7 +328,7 @@ export async function createTruck(formData) {
     if (mongoose.Types.ObjectId.isValid(targetUserId)) {
       targetUserId = new mongoose.Types.ObjectId(targetUserId);
     }
-
+    const Truck = (await import("@/app/lib/models/Truck")).default;
     // Check if truck name already exists for this user
     const existingTruck = await Truck.findOne({
       name: name.trim().toUpperCase(),
@@ -406,7 +406,7 @@ export async function updateTruck(truckId, formData) {
     if (!session) {
       return { error: "Unauthorized" };
     }
-
+    const Truck = (await import("@/app/lib/models/Truck")).default;
     const truck = await Truck.findById(truckId);
     if (!truck) {
       return { error: "Truck not found" };
@@ -538,6 +538,7 @@ export async function deleteTruck(truckId) {
       return { error: "Unauthorized" };
     }
 
+    const Truck = (await import("@/app/lib/models/Truck")).default;
     const truck = await Truck.findById(truckId);
     if (!truck) {
       return { error: "Truck not found" };

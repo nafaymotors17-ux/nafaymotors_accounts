@@ -1,15 +1,20 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { getAllTrucks, createTruck, updateTruck, deleteTruck } from "@/app/lib/carriers-actions/trucks";
 import { getAllDrivers } from "@/app/lib/carriers-actions/drivers";
 import { getAllUsersForSelection } from "@/app/lib/users-actions/users";
 import { useUser } from "@/app/components/UserContext";
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { Plus, RefreshCw } from "lucide-react";
 import TrucksTable from "./components/TrucksTable";
 import TruckForm from "./components/TruckForm";
 import TruckSearch from "./components/TruckSearch";
+import { Toast } from "@/app/components/Toast";
+
+const DRIVERS_QUERY_KEY = ["drivers"];
+const USERS_SELECTION_QUERY_KEY = ["users-selection"];
+const PER_PAGE = 10;
 
 export default function CarriersPage() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -17,70 +22,77 @@ export default function CarriersPage() {
   const [showForm, setShowForm] = useState(false);
   const [sortField, setSortField] = useState(null);
   const [sortDirection, setSortDirection] = useState("asc");
+  const [page, setPage] = useState(1);
   const [trucks, setTrucks] = useState([]);
-  const [drivers, setDrivers] = useState([]);
-  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [createPending, setCreatePending] = useState(false);
+  const [updatePending, setUpdatePending] = useState(false);
+  const [deletePending, setDeletePending] = useState(false);
+  const [createError, setCreateError] = useState(null);
+  const [updateError, setUpdateError] = useState(null);
+  const [toast, setToast] = useState(null);
   const { user, loading: userLoading } = useUser();
+  const userRef = useRef(user);
+  userRef.current = user;
+
+  const userId = user?.userId ?? null;
+  const isSuperAdmin = user?.role === "super_admin";
 
   const loadTrucks = useCallback(async () => {
-    if (!user) return;
-    try {
-      const res = await getAllTrucks({}, user);
-      setTrucks(res?.trucks || []);
-    } catch (err) {
-      setError(err?.message || "Failed to load trucks");
-    }
-  }, [user]);
-
-  const loadDrivers = useCallback(async () => {
-    if (!user) return;
-    try {
-      const res = await getAllDrivers({}, user);
-      setDrivers(res?.drivers || []);
-    } catch (err) {
-      // drivers load failure doesn't replace trucks error
-      setDrivers([]);
-    }
-  }, [user]);
-
-  const loadUsers = useCallback(async () => {
-    if (!user || user?.role !== "super_admin") return;
-    try {
-      const res = await getAllUsersForSelection();
-      setUsers(res?.users || []);
-    } catch {
-      setUsers([]);
-    }
-  }, [user]);
-
-  const refresh = useCallback(async () => {
-    if (!user) return;
+    const u = userRef.current;
+    if (!u) return;
     setRefreshing(true);
     setError(null);
-    await Promise.all([loadTrucks(), loadDrivers(), loadUsers()]);
-    setRefreshing(false);
-  }, [user, loadTrucks, loadDrivers, loadUsers]);
+    try {
+      const res = await getAllTrucks({}, u);
+      setTrucks(res?.trucks ?? []);
+    } catch (err) {
+      setError(err?.message ?? "Failed to load trucks");
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
-    if (!user) {
+    if (userLoading || !userId) {
       setLoading(false);
       return;
     }
     let cancelled = false;
     setLoading(true);
     setError(null);
-    Promise.all([
-      getAllTrucks({}, user).then((res) => !cancelled && setTrucks(res?.trucks || [])),
-      getAllDrivers({}, user).then((res) => !cancelled && setDrivers(res?.drivers || [])),
-      user?.role === "super_admin"
-        ? getAllUsersForSelection().then((res) => !cancelled && setUsers(res?.users || []))
-        : Promise.resolve(),
-    ]).catch((err) => !cancelled && setError(err?.message || "Failed to load")).finally(() => !cancelled && setLoading(false));
+    const u = userRef.current;
+    getAllTrucks({}, u)
+      .then((res) => {
+        if (!cancelled) setTrucks(res?.trucks ?? []);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err?.message ?? "Failed to load trucks");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     return () => { cancelled = true; };
-  }, [user?.userId, user?.role]);
+  }, [userLoading, userId]);
+
+  // Lazy: only fetch drivers when form is open (for driver dropdown in TruckForm)
+  const driversQuery = useQuery({
+    queryKey: [...DRIVERS_QUERY_KEY, userId],
+    queryFn: () => getAllDrivers({}, user).then((res) => res?.drivers ?? []),
+    enabled: !userLoading && !!userId && showForm,
+  });
+
+  // Lazy: only fetch users when form is open and super_admin (for "Create for User" in TruckForm)
+  const usersQuery = useQuery({
+    queryKey: [...USERS_SELECTION_QUERY_KEY, userId],
+    queryFn: () => getAllUsersForSelection().then((res) => res?.users ?? []),
+    enabled: !userLoading && !!userId && isSuperAdmin && showForm,
+  });
+
+  const drivers = driversQuery.data ?? [];
+  const users = usersQuery.data ?? [];
 
   // Filter and sort trucks
   const filteredTrucks = useMemo(() => {
@@ -121,7 +133,20 @@ export default function CarriersPage() {
     return result;
   }, [trucks, searchQuery, sortField, sortDirection]);
 
-  const handleSearchChange = (value) => setSearchQuery(value);
+  const totalPages = Math.max(1, Math.ceil(filteredTrucks.length / PER_PAGE));
+  const paginatedTrucks = useMemo(
+    () => filteredTrucks.slice((page - 1) * PER_PAGE, page * PER_PAGE),
+    [filteredTrucks, page]
+  );
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const handleSearchChange = (value) => {
+    setSearchQuery(value);
+    setPage(1);
+  };
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -130,6 +155,7 @@ export default function CarriersPage() {
       setSortField(field);
       setSortDirection("asc");
     }
+    setPage(1);
   };
 
   const handleEdit = (carrier) => {
@@ -137,40 +163,102 @@ export default function CarriersPage() {
     setShowForm(true);
   };
 
-  const handleCloseForm = () => {
+  const handleCloseForm = useCallback(() => {
     setEditingCarrier(null);
     setShowForm(false);
-  };
+    setCreateError(null);
+    setUpdateError(null);
+  }, []);
 
-  const createMutation = useMutation({
-    mutationFn: (formData) => createTruck(formData),
-    onSuccess: () => {
-      loadTrucks();
+  const createMutate = useCallback(async (formData) => {
+    setCreateError(null);
+    setCreatePending(true);
+    try {
+      const result = await createTruck(formData);
+      if (result?.error) {
+        const msg = result.error;
+        setCreateError(new Error(msg));
+        setToast({ message: msg, type: "error" });
+        return;
+      }
+      const t = result.truck;
+      const newTruck = {
+        _id: t?._id?.toString?.() ?? t?._id,
+        name: t?.name ?? "",
+        number: t?.number ?? "",
+        drivers: [],
+        currentMeterReading: t?.currentMeterReading ?? 0,
+        maintenanceInterval: t?.maintenanceInterval ?? 1000,
+        lastMaintenanceKm: t?.lastMaintenanceKm ?? 0,
+        userId: t?.userId?.toString?.() ?? t?.userId,
+        user: null,
+        isActive: t?.isActive ?? true,
+        createdAt: t?.createdAt,
+        updatedAt: t?.updatedAt,
+      };
+      setTrucks((prev) => [...prev, newTruck]);
+      setToast({ message: "Truck created successfully", type: "success" });
       handleCloseForm();
-    },
-  });
+    } catch (err) {
+      const msg = err?.message || "Failed to create truck";
+      setCreateError(err);
+      setToast({ message: msg, type: "error" });
+    } finally {
+      setCreatePending(false);
+    }
+  }, [handleCloseForm]);
 
-  const updateMutation = useMutation({
-    mutationFn: ({ truckId, formData }) => updateTruck(truckId, formData),
-    onSuccess: (_result, variables) => {
-      loadTrucks();
+  const updateMutate = useCallback(async ({ truckId, formData }) => {
+    setUpdateError(null);
+    setUpdatePending(true);
+    try {
+      const result = await updateTruck(truckId, formData);
+      if (result?.error) {
+        const msg = result.error;
+        setUpdateError(new Error(msg));
+        setToast({ message: msg, type: "error" });
+        return;
+      }
+      const t = result.truck;
+      setTrucks((prev) =>
+        prev.map((tr) =>
+          (tr._id ?? tr._id?.toString?.()) === (truckId?.toString?.() ?? truckId)
+            ? {
+                ...tr,
+                name: t?.name ?? tr.name,
+                number: t?.number ?? tr.number,
+                currentMeterReading: t?.currentMeterReading ?? tr.currentMeterReading,
+                maintenanceInterval: t?.maintenanceInterval ?? tr.maintenanceInterval,
+                lastMaintenanceKm: t?.lastMaintenanceKm ?? tr.lastMaintenanceKm,
+                lastMaintenanceDate: t?.lastMaintenanceDate ?? tr.lastMaintenanceDate,
+              }
+            : tr
+        )
+      );
+      setToast({ message: "Truck updated successfully", type: "success" });
       handleCloseForm();
-    },
-  });
+    } catch (err) {
+      const msg = err?.message || "Failed to update truck";
+      setUpdateError(err);
+      setToast({ message: msg, type: "error" });
+    } finally {
+      setUpdatePending(false);
+    }
+  }, [handleCloseForm]);
 
-  const deleteMutation = useMutation({
-    mutationFn: async (truckId) => {
-      const result = await deleteTruck(truckId);
-      if (result?.error) throw new Error(result.error);
-      return result;
-    },
-    onSuccess: () => loadTrucks(),
-    onError: (error) => {
-      alert(`Error deleting truck: ${error.message || "Unknown error"}`);
-    },
-  });
+  const createMutation = useMemo(() => ({
+    mutate: (formData) => createMutate(formData),
+    isPending: createPending,
+    error: createError,
+  }), [createMutate, createPending, createError]);
 
-  const handleSubmit = (e) => {
+  const updateMutation = useMemo(() => ({
+    mutate: (vars) => updateMutate(vars),
+    isPending: updatePending,
+    error: updateError,
+  }), [updateMutate, updatePending, updateError]);
+
+  const handleSubmit = useCallback((e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
     if (editingCarrier) {
@@ -178,18 +266,36 @@ export default function CarriersPage() {
     } else {
       createMutation.mutate(formData);
     }
-  };
+  }, [editingCarrier, createMutation, updateMutation]);
 
-  const handleDelete = (truckId) => {
-    if (confirm("Are you sure you want to delete this truck?")) {
-      deleteMutation.mutate(truckId);
-    }
-  };
+  const refresh = useCallback(() => {
+    loadTrucks();
+  }, [loadTrucks]);
 
-  const isSuperAdmin = user?.role === "super_admin";
+  const handleDelete = useCallback((truckId) => {
+    if (!confirm("Are you sure you want to delete this truck?")) return;
+    const id = truckId?.toString?.() ?? truckId;
+    setDeletePending(true);
+    deleteTruck(truckId)
+      .then((result) => {
+        if (result?.error) {
+          setToast({ message: result.error, type: "error" });
+          return;
+        }
+        setTrucks((prev) => prev.filter((t) => (t._id?.toString?.() ?? t._id) !== id));
+        setToast({ message: "Truck deleted successfully", type: "success" });
+      })
+      .catch((err) => setToast({ message: err?.message || "Failed to delete truck", type: "error" }))
+      .finally(() => setDeletePending(false));
+  }, []);
 
   return (
     <div className="container mx-auto px-4 py-8">
+      <Toast
+        message={toast?.message}
+        type={toast?.type}
+        onDismiss={() => setToast(null)}
+      />
       <div className="mb-4 flex justify-between items-center">
         <h1 className="text-xl font-bold text-gray-800">Trucks</h1>
         <div className="flex items-center gap-2">
@@ -197,7 +303,7 @@ export default function CarriersPage() {
             onClick={refresh}
             disabled={refreshing}
             className="px-2.5 py-1.5 text-gray-700 border border-gray-300 rounded-md hover:bg-stone-50 flex items-center gap-1.5 text-sm disabled:opacity-50"
-            title="Refresh trucks and drivers"
+            title="Refresh trucks"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
             Refresh
@@ -225,16 +331,41 @@ export default function CarriersPage() {
           {searchQuery ? "No trucks found matching your search." : "No trucks found."}
         </div>
       ) : (
-        <TrucksTable
-          trucks={filteredTrucks}
-          sortField={sortField}
-          sortDirection={sortDirection}
-          onSort={handleSort}
-          onEdit={handleEdit}
-          onDelete={handleDelete}
-          isSuperAdmin={isSuperAdmin}
-          deleteMutationPending={deleteMutation.isPending}
-        />
+        <>
+          <TrucksTable
+            trucks={paginatedTrucks}
+            sortField={sortField}
+            sortDirection={sortDirection}
+            onSort={handleSort}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            isSuperAdmin={isSuperAdmin}
+            deleteMutationPending={deletePending}
+          />
+          <div className="mt-2 flex items-center justify-between text-sm text-gray-600">
+            <span>
+              Page {page} of {totalPages} ({filteredTrucks.length} trucks)
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="px-2 py-1 border border-gray-300 rounded disabled:opacity-50 hover:bg-gray-50"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="px-2 py-1 border border-gray-300 rounded disabled:opacity-50 hover:bg-gray-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
       {showForm && (

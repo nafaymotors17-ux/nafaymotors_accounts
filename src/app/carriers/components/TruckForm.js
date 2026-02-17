@@ -41,16 +41,6 @@ export default function TruckForm({
         hiddenInput.value = driverId;
         e.target.appendChild(hiddenInput);
       });
-      
-      // Debug: Verify driver IDs
-      console.log("TruckForm - selectedDriverIds:", selectedDriverIds);
-    }
-
-    // Debug: Verify driver IDs are in the form
-    if (!editingTruck) {
-      const formDataCheck = new FormData(e.target);
-      console.log("TruckForm - selectedDriverIds:", selectedDriverIds);
-      console.log("TruckForm - FormData driverIds:", formDataCheck.getAll('driverIds'));
     }
 
     // Call the parent's onSubmit handler
