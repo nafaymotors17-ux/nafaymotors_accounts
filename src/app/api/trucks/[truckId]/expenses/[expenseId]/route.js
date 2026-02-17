@@ -59,6 +59,7 @@ export async function GET(request, { params }) {
 export async function PUT(request, { params }) {
   await connectDB();
   try {
+    const Truck = (await import("@/app/lib/models/Truck")).default;
     const session = await getSession();
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -143,6 +144,7 @@ export async function PUT(request, { params }) {
 export async function DELETE(request, { params }) {
   await connectDB();
   try {
+    const Truck = (await import("@/app/lib/models/Truck")).default;
     const session = await getSession();
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
