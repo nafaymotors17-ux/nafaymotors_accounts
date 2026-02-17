@@ -7,14 +7,11 @@ export async function POST() {
     const cookieStore = await cookies();
     cookieStore.delete("user_session");
     
-    // Create response with expired cookie header to ensure browser clears it
     const response = NextResponse.json({ success: true }, {
       headers: {
         "Set-Cookie": "user_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax"
       }
     });
-    
-    console.log("[logout] Server-side cookie cleared");
     return response;
   } catch (error) {
     console.error("Logout error:", error);

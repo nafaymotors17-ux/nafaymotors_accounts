@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import connectDB from "@/app/lib/dbConnect";
 import User from "@/app/lib/models/User";
 
+// Match client: 24 hours
+const SESSION_MAX_AGE_SEC = 60 * 60 * 24;
+
 export async function POST(request) {
   try {
     const { username, password } = await request.json();
@@ -24,7 +27,6 @@ export async function POST(request) {
       );
     }
 
-    // Simple password check - no hashing
     if (user.password !== password) {
       return NextResponse.json(
         { success: false, error: "Invalid credentials" },
@@ -32,18 +34,27 @@ export async function POST(request) {
       );
     }
 
-    // Return session data - client will store in localStorage
     const sessionData = {
       userId: user._id.toString(),
       username: user.username,
       role: user.role,
     };
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       success: true,
       user: sessionData,
-      session: sessionData, // Include full session data for client
+      session: sessionData,
     });
+
+    // Set session cookie from server so Vercel gets it immediately (avoids cookie sync timing)
+    const cookieValue = encodeURIComponent(JSON.stringify(sessionData));
+    const secure = process.env.VERCEL || process.env.NODE_ENV === "production" ? "; Secure" : "";
+    res.headers.set(
+      "Set-Cookie",
+      `user_session=${cookieValue}; Path=/; Max-Age=${SESSION_MAX_AGE_SEC}; SameSite=Lax${secure}`
+    );
+
+    return res;
   } catch (error) {
     console.error("Login error:", error);
     return NextResponse.json(

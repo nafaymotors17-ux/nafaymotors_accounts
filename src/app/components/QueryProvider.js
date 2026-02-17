@@ -11,10 +11,10 @@ export function QueryProvider({ children }) {
         defaultOptions: {
           queries: {
             staleTime: 60 * 1000, // 1 minute
-            refetchOnWindowFocus: false,
+            refetchOnWindowFocus: true,
           },
         },
-      })
+      }),
   );
 
   return (

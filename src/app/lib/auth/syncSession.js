@@ -4,6 +4,15 @@
 // This allows server components to access session via cookies
 // while primary storage is localStorage
 
+// Session duration: 24 hours
+const SESSION_MAX_AGE_SEC = 60 * 60 * 24;
+
+function getCookieOptions() {
+  const isProduction = typeof window !== "undefined" && window.location?.protocol === "https:";
+  const securePart = isProduction ? "; Secure" : "";
+  return `path=/; max-age=${SESSION_MAX_AGE_SEC}; SameSite=Lax${securePart}`;
+}
+
 export function syncSessionToCookie() {
   if (typeof window === "undefined") {
     return;
@@ -12,29 +21,13 @@ export function syncSessionToCookie() {
   try {
     const sessionData = localStorage.getItem("user_session");
     if (sessionData) {
-      // First, clear any existing cookie to avoid conflicts
       const pastDate = "Thu, 01 Jan 1970 00:00:00 GMT";
       document.cookie = `user_session=; expires=${pastDate}; path=/`;
-      
-      // Then set the new cookie with session data for server components
-      // Use SameSite=None and Secure for cross-site requests if needed
-      // For localhost, SameSite=Lax should work fine
+
       const cookieValue = encodeURIComponent(sessionData);
-      const cookieString = `user_session=${cookieValue}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`;
-      document.cookie = cookieString;
-      
-      // Verify the cookie was set
-      const cookieSet = document.cookie.includes("user_session");
-      console.log("[syncSessionToCookie] Cookie synced:", {
-        hasData: !!sessionData,
-        dataLength: sessionData.length,
-        cookieSet: cookieSet,
-        session: JSON.parse(sessionData)
-      });
+      document.cookie = `user_session=${cookieValue}; ${getCookieOptions()}`;
     } else {
-      // If no session data, clear the cookie
       clearSessionCookie();
-      console.warn("[syncSessionToCookie] No session data in localStorage, cookie cleared");
     }
   } catch (error) {
     console.error("Error syncing session to cookie:", error);
@@ -63,7 +56,6 @@ export function clearSessionCookie() {
       });
     });
     
-    console.log("[clearSessionCookie] Cookie cleared");
   } catch (error) {
     console.error("Error clearing session cookie:", error);
   }

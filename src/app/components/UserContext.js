@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useLayoutEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { getSessionFromStorage, clearSessionFromStorage } from "@/app/lib/auth/sessionClient";
+import { getSessionFromStorage, clearSessionFromStorage, setSessionInStorage } from "@/app/lib/auth/sessionClient";
 import { syncSessionToCookie, clearSessionCookie } from "@/app/lib/auth/syncSession";
 import { getCurrentUser } from "@/app/lib/users-actions/users";
 
@@ -21,22 +21,16 @@ export function UserProvider({ children }) {
     const session = getSessionFromStorage();
     if (session) {
       syncSessionToCookie();
-    } else {
-      clearSessionCookie();
     }
+    // Do NOT clear cookie when localStorage is empty - server may still have valid cookie (Vercel fix)
   }, [pathname]);
 
   useEffect(() => {
-    // Read session from localStorage
     const session = getSessionFromStorage();
-    
+
     if (session) {
       setUser(session);
-      // Sync to cookie for server components - do this on every route change
-      // to ensure server components can access the session
       syncSessionToCookie();
-      
-      // Fetch full user data including bankDetails
       const fetchFullUserData = async () => {
         try {
           const userResult = await getCurrentUser();
@@ -50,16 +44,36 @@ export function UserProvider({ children }) {
         }
       };
       fetchFullUserData();
-    } else {
+      return;
+    }
+
+    // localStorage empty: check if server has valid session (cookie) - fixes Vercel "session expires too soon"
+    const restoreFromCookie = async () => {
+      try {
+        const res = await fetch("/api/auth/me", { credentials: "include" });
+        const data = await res.json();
+        if (res.ok && data.user) {
+          setSessionInStorage(data.user);
+          syncSessionToCookie();
+          setUser(data.user);
+          const userResult = await getCurrentUser();
+          if (userResult.success && userResult.user) setFullUserData(userResult.user);
+          setLoading(false);
+          return;
+        }
+      } catch (err) {
+        console.error("Error restoring session from cookie:", err);
+      }
       setUser(null);
       setFullUserData(null);
       clearSessionCookie();
       setLoading(false);
-      // Redirect to login if not on login page
       if (pathname !== "/login") {
         router.push("/login");
       }
-    }
+    };
+
+    restoreFromCookie();
   }, [pathname, router]);
 
   // Also sync cookie whenever user state changes (e.g., after login)

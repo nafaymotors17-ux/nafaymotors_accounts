@@ -41,16 +41,7 @@ export default function TabNavigation() {
   const filteredModules = enabledModules.filter((module) => {
     // Only super admin can see accounting
     if (module.id === "accounting") {
-      // Check role - ensure it's exactly "super_admin"
-      const userRole = user?.role;
-      const isSuperAdmin = userRole === "super_admin";
-      
-      // Debug logging
-      if (!isSuperAdmin) {
-        console.log("[TabNavigation] Accounting hidden - user role:", userRole, "Expected: super_admin");
-      }
-      
-      return isSuperAdmin;
+      return user?.role === "super_admin";
     }
     return true;
   });
