@@ -90,30 +90,48 @@ export async function getAllCarriers(searchParams = {}) {
       }
     }
 
-    // Global search across multiple fields
+    // Global search across multiple fields (trip number, truck name/number, carrier name, etc.)
     if (searchParams.globalSearch) {
       const term = decodeURIComponent(searchParams.globalSearch).trim();
       if (term) {
         const searchRegex = { $regex: escapeRegex(term), $options: "i" };
-        carrierMatchConditions.push({
-          $or: [
-            { tripNumber: searchRegex },
-            { carrierName: searchRegex },
-            { driverName: searchRegex },
-            { details: searchRegex },
-            { notes: searchRegex },
-          ],
-        });
+        const globalOrConditions = [
+          { tripNumber: searchRegex },
+          { carrierName: searchRegex },
+          { driverName: searchRegex },
+          { details: searchRegex },
+          { notes: searchRegex },
+        ];
+        // Include carriers whose assigned truck name or number matches the search term
+        const truckMatch = { $or: [{ name: searchRegex }, { number: searchRegex }] };
+        if (session.role !== "super_admin" && session.userId && mongoose.Types.ObjectId.isValid(session.userId)) {
+          truckMatch.userId = new mongoose.Types.ObjectId(session.userId);
+        }
+        const matchingTrucks = await Truck.find(truckMatch).select("_id").lean();
+        if (matchingTrucks.length > 0) {
+          const truckIds = matchingTrucks.map((t) => t._id);
+          globalOrConditions.push({ truck: { $in: truckIds } });
+        }
+        carrierMatchConditions.push({ $or: globalOrConditions });
       }
     }
 
-    // Carrier date filter
-    if (searchParams.startDate && searchParams.endDate) {
-      const startDate = new Date(searchParams.startDate);
-      startDate.setHours(0, 0, 0, 0);
-      const endDate = new Date(searchParams.endDate);
-      endDate.setHours(23, 59, 59, 999);
-      carrierMatchConditions.push({ date: { $gte: startDate, $lte: endDate } });
+    // Carrier date filter (trip date) - support start only, end only, or both
+    if (searchParams.startDate || searchParams.endDate) {
+      const carrierDateQuery = {};
+      if (searchParams.startDate) {
+        const sd = new Date(searchParams.startDate);
+        sd.setHours(0, 0, 0, 0);
+        carrierDateQuery.$gte = sd;
+      }
+      if (searchParams.endDate) {
+        const ed = new Date(searchParams.endDate);
+        ed.setHours(23, 59, 59, 999);
+        carrierDateQuery.$lte = ed;
+      }
+      if (Object.keys(carrierDateQuery).length > 0) {
+        carrierMatchConditions.push({ date: carrierDateQuery });
+      }
     }
 
     const carLookupMatchConditions = [
