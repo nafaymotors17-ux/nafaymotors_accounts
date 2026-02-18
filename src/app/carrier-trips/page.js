@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { getAllCarriers } from "@/app/lib/carriers-actions/carriers";
 import { getAllCompanies } from "@/app/lib/carriers-actions/companies";
 import { getAllUsersForSelection } from "@/app/lib/users-actions/users";
@@ -9,11 +10,13 @@ import { useUser } from "@/app/components/UserContext";
 import SimpleCarriersTable from "./components/SimpleCarriersTable";
 import CompactFilters from "./components/CompactFilters";
 
-const FILTER_KEYS = ["startDate", "endDate", "company", "carrierName", "isActive", "userId", "globalSearch"];
-
-function sameFilters(a, b) {
-  return FILTER_KEYS.every((k) => (a?.[k] || "") === (b?.[k] || ""));
-}
+const DEFAULT_TOTALS = {
+  totalCars: 0,
+  totalAmount: 0,
+  totalExpenses: 0,
+  totalProfit: 0,
+  totalTrips: 0,
+};
 
 function buildParamsFromSearchParams(searchParams) {
   const params = {};
@@ -40,82 +43,57 @@ function buildParamsFromSearchParams(searchParams) {
 
 export default function CarriersPage() {
   const [selectedTripIds, setSelectedTripIds] = useState([]);
-  const [carriersData, setCarriersData] = useState(null);
   const [companies, setCompanies] = useState([]);
   const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const prevQueryParamsRef = useRef(null);
   const searchParams = useSearchParams();
-  const searchParamsRef = useRef(searchParams);
-  searchParamsRef.current = searchParams;
   const { user } = useUser();
 
-  const queryParams = useMemo(() => buildParamsFromSearchParams(searchParams), [searchParams]);
+  const queryParams = useMemo(
+    () => buildParamsFromSearchParams(searchParams),
+    [searchParams],
+  );
 
-  const queryKey = useMemo(() => searchParams.toString(), [searchParams]);
-
-  const loadCarriers = useCallback(async (opts = {}) => {
-    const params = buildParamsFromSearchParams(searchParamsRef.current);
-    const skipTotals =
-      opts.skipTotals === true ||
-      (opts.paginationOnly === true &&
-        prevQueryParamsRef.current != null &&
-        sameFilters(params, prevQueryParamsRef.current) &&
-        (params.page !== prevQueryParamsRef.current?.page ||
-          params.limit !== prevQueryParamsRef.current?.limit));
-    const requestParams = skipTotals ? { ...params, skipTotals: true } : params;
-    try {
-      const res = await getAllCarriers(requestParams);
-      if (skipTotals) {
-        setCarriersData((prev) => ({ ...res, totals: prev?.totals ?? res?.totals }));
-      } else {
-        setCarriersData(res);
-      }
-      prevQueryParamsRef.current = params;
-    } catch (err) {
-      setError(err?.message || "Failed to load carriers");
-      setCarriersData({ carriers: [], pagination: null, totals: null });
-    }
-  }, []);
+  // Trips list: React Query with staleTime 0 so we always get fresh data
+  const {
+    data: carriersData,
+    isLoading: loading,
+    error: carriersError,
+    refetch: refetchCarriers,
+  } = useQuery({
+    queryKey: ["carriers", queryParams],
+    queryFn: () => getAllCarriers(queryParams),
+    staleTime: 0,
+  });
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    const params = buildParamsFromSearchParams(searchParamsRef.current);
-    const onlyPagination =
-      prevQueryParamsRef.current != null &&
-      sameFilters(params, prevQueryParamsRef.current) &&
-      (params.page !== prevQueryParamsRef.current?.page ||
-        params.limit !== prevQueryParamsRef.current?.limit);
-    Promise.all([
-      loadCarriers({ paginationOnly: onlyPagination }),
-      getAllCompanies().then(
-        (res) => !cancelled && setCompanies(res?.companies || []),
-      ),
-      user?.role === "super_admin"
-        ? getAllUsersForSelection().then(
-            (res) => !cancelled && setUsers(res?.users || []),
-          )
-        : Promise.resolve(),
-    ])
-      .catch((err) => !cancelled && setError(err?.message || "Failed to load"))
-      .finally(() => !cancelled && setLoading(false));
+    getAllCompanies().then(
+      (res) => !cancelled && setCompanies(res?.companies || []),
+    );
+    if (user?.role === "super_admin") {
+      getAllUsersForSelection().then(
+        (res) => !cancelled && setUsers(res?.users || []),
+      );
+    }
     return () => {
       cancelled = true;
     };
-  }, [queryKey, user?.userId, user?.role, loadCarriers]);
+  }, [user?.userId, user?.role]);
 
-  const carriers = carriersData?.carriers || [];
-  const pagination = carriersData?.pagination;
-  const totals = carriersData?.totals || {
-    totalCars: 0,
-    totalAmount: 0,
-    totalExpenses: 0,
-    totalProfit: 0,
-    totalTrips: 0,
-  };
+  // Stable derived data to avoid unnecessary child re-renders
+  const carriers = useMemo(
+    () => carriersData?.carriers ?? [],
+    [carriersData?.carriers],
+  );
+  const pagination = useMemo(
+    () => carriersData?.pagination ?? null,
+    [carriersData?.pagination],
+  );
+  const totals = useMemo(
+    () => carriersData?.totals ?? DEFAULT_TOTALS,
+    [carriersData?.totals],
+  );
+
   const totalCars = totals.totalCars;
   const totalAmount = totals.totalAmount;
   const totalExpenses = totals.totalExpenses;
@@ -123,18 +101,31 @@ export default function CarriersPage() {
   const totalTrips = totals.totalTrips;
   const hasCompanyFilter = !!queryParams.company;
   const isSuperAdmin = user?.role === "super_admin";
+  const errorMessage = carriersError?.message ?? null;
+
+  // Memoize stable callback so SimpleCarriersTable doesn't re-render unnecessarily
+  const handleSelectedTripsChange = useCallback((ids) => {
+    setSelectedTripIds(ids);
+  }, []);
+
+  // Memoize summary cards config to avoid recreating on every render
+  const summaryGridClass = useMemo(
+    () =>
+      `grid grid-cols-1 gap-2 mb-3 ${hasCompanyFilter ? "md:grid-cols-3" : "md:grid-cols-5"}`,
+    [hasCompanyFilter],
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto px-4 py-8">
-        {error && (
+        {errorMessage && (
           <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-red-700">
-            Error loading data: {error}
+            Error loading data: {errorMessage}
           </div>
         )}
         {/* Summary Cards - DB-level totals (all trips matching filters, not just current page) */}
         <div
-          className={`grid grid-cols-1 gap-2 mb-3 ${hasCompanyFilter ? "md:grid-cols-3" : "md:grid-cols-5"}`}
+          className={summaryGridClass}
           title="Totals are for all trips matching your filters, not just the current page"
         >
           <div className="bg-white px-3 py-2 rounded-lg shadow-sm border border-gray-200">
@@ -200,9 +191,9 @@ export default function CarriersPage() {
           pagination={pagination}
           isSuperAdmin={isSuperAdmin}
           loading={loading}
-          onSelectedTripsChange={setSelectedTripIds}
+          onSelectedTripsChange={handleSelectedTripsChange}
           currentUser={user}
-          onRefreshCarriers={loadCarriers}
+          onRefreshCarriers={refetchCarriers}
         />
       </div>
     </div>

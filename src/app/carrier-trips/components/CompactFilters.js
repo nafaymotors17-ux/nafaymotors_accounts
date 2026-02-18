@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Search, X, Download } from "lucide-react";
 import CompanyInvoiceGenerator from "./CompanyInvoiceGenerator";
 
-export default function CompactFilters({ companies, carriers = [], isSuperAdmin = false, users = [], selectedTripIds = [] }) {
+function CompactFilters({ companies, carriers = [], isSuperAdmin = false, users = [], selectedTripIds = [] }) {
   const router = useRouter();
   const params = useSearchParams();
   const queryClient = useQueryClient();
@@ -240,3 +240,5 @@ export default function CompactFilters({ companies, carriers = [], isSuperAdmin 
     </>
   );
 }
+
+export default React.memo(CompactFilters);

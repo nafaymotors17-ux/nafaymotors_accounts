@@ -116,10 +116,9 @@ function SimpleCarriersTable({
   // Mutations
   const deleteCarMutation = useMutation({
     mutationFn: deleteCar,
-    onSuccess: (_, carId) => {
-      // Invalidate carrier cars queries
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["carrierCars"] });
-      // Invalidate carriers to update counts
+      queryClient.invalidateQueries({ queryKey: ["carriers"] });
       onRefreshCarriers?.();
     },
   });
@@ -127,9 +126,9 @@ function SimpleCarriersTable({
   const deleteCarrierMutation = useMutation({
     mutationFn: deleteCarrier,
     onSuccess: () => {
-      onRefreshCarriers?.();
-      // Also invalidate truck queries to refresh meter readings and maintenance status
+      queryClient.invalidateQueries({ queryKey: ["carriers"] });
       queryClient.invalidateQueries({ queryKey: ["trucks"] });
+      onRefreshCarriers?.();
     },
   });
 
@@ -150,6 +149,7 @@ function SimpleCarriersTable({
       return response.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["carriers"] });
       onRefreshCarriers?.();
     },
   });
@@ -323,6 +323,46 @@ function SimpleCarriersTable({
     };
   }, [pagination]);
 
+  // Memoize trip-only carriers and their IDs for select-all (avoids recalc every render)
+  const tripCarrierIds = useMemo(
+    () =>
+      carriers
+        .filter(
+          (c) => c.type === "trip" || (!c.type && c.tripNumber),
+        )
+        .map((c) => c._id.toString()),
+    [carriers],
+  );
+  const allTripsSelected =
+    tripCarrierIds.length > 0 &&
+    tripCarrierIds.every((id) => selectedTripIds.has(id));
+  const handleSelectAllChange = useCallback(
+    (checked) => {
+      if (checked) {
+        const newSet = new Set(tripCarrierIds);
+        setSelectedTripIds(newSet);
+        handleSelectedTripsChange(Array.from(newSet));
+      } else {
+        setSelectedTripIds(new Set());
+        handleSelectedTripsChange([]);
+      }
+    },
+    [tripCarrierIds, handleSelectedTripsChange],
+  );
+
+  const handleToggleTripSelection = useCallback(
+    (tripId, checked) => {
+      setSelectedTripIds((prev) => {
+        const newSet = new Set(prev);
+        if (checked) newSet.add(tripId);
+        else newSet.delete(tripId);
+        onSelectedTripsChange?.(Array.from(newSet));
+        return newSet;
+      });
+    },
+    [onSelectedTripsChange],
+  );
+
   return (
     <>
       <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -421,30 +461,10 @@ function SimpleCarriersTable({
                   <th className="px-2 py-1.5 text-center font-medium text-gray-600 text-[10px] w-8">
                     <input
                       type="checkbox"
-                      checked={
-                        carriers.filter(
-                          (c) => c.type === "trip" || (!c.type && c.tripNumber),
-                        ).length > 0 &&
-                        carriers
-                          .filter(
-                            (c) =>
-                              c.type === "trip" || (!c.type && c.tripNumber),
-                          )
-                          .every((c) => selectedTripIds.has(c._id.toString()))
+                      checked={allTripsSelected}
+                      onChange={(e) =>
+                        handleSelectAllChange(e.target.checked)
                       }
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          const tripIds = carriers
-                            .filter(
-                              (c) =>
-                                c.type === "trip" || (!c.type && c.tripNumber),
-                            )
-                            .map((c) => c._id.toString());
-                          handleSelectedTripsChange(new Set(tripIds));
-                        } else {
-                          handleSelectedTripsChange(new Set());
-                        }
-                      }}
                       className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                       title="Select all trips"
                     />
@@ -505,15 +525,7 @@ function SimpleCarriersTable({
                       isExpanded={isExpanded}
                       filters={currentFilters}
                       selectedTripIds={selectedTripIds}
-                      onToggleTripSelection={(tripId, checked) => {
-                        const newSet = new Set(selectedTripIds);
-                        if (checked) {
-                          newSet.add(tripId);
-                        } else {
-                          newSet.delete(tripId);
-                        }
-                        handleSelectedTripsChange(newSet);
-                      }}
+                      onToggleTripSelection={handleToggleTripSelection}
                       onToggle={toggleTrip}
                       onEdit={() => {
                         setEditingCarrier(carrier);
