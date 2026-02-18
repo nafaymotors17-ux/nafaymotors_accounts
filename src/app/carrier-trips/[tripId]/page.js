@@ -610,6 +610,10 @@ export default function TripDetailPage() {
             setShowExpenseForm(false);
             setEditingExpense(null);
           }}
+          onNotify={(type, message) => {
+            setNotification({ type, message });
+            setTimeout(() => setNotification(null), type === "error" ? 5000 : 3000);
+          }}
         />
       )}
 

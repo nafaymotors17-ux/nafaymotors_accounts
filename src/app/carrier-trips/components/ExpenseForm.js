@@ -14,7 +14,7 @@ const CATEGORIES = [
   { value: "others", label: "Others" },
 ];
 
-export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
+export default function ExpenseForm({ carrierId, expense, trip, onClose, onNotify }) {
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -114,23 +114,23 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
       if (context?.previousTripData) {
         queryClient.setQueryData(["trip", carrierId], context.previousTripData);
       }
-      // Set error state so user sees the error
-      setError(err.message || "Failed to create expense. Changes have been reverted.");
+      const message = err.message || "Failed to create expense. Changes have been reverted.";
+      setError(message);
       setIsSubmitting(false);
+      onNotify?.("error", message);
     },
     onSuccess: (data) => {
-      // Replace optimistic expense with real one from server
+      // Replace optimistic expense with real one from server (no refetch)
       queryClient.setQueryData(["trip", carrierId], (old) => {
         if (!old) return old;
-        // Remove temporary expense and add real one
         const expenses = (old.expenses || []).filter(exp => !exp._id?.startsWith("temp-"));
         return {
           ...old,
           expenses: [data.expense, ...expenses],
         };
       });
-      // Invalidate to ensure all related queries are fresh
-      queryClient.invalidateQueries({ queryKey: ["trip", carrierId] });
+      onNotify?.("success", "Expense added");
+      // Invalidate other lists in background (trip stays without refresh)
       queryClient.invalidateQueries({ queryKey: ["carriers"] });
       queryClient.invalidateQueries({ queryKey: ["driverRentPayments"] });
     },
@@ -187,79 +187,68 @@ export default function ExpenseForm({ carrierId, expense, trip, onClose }) {
       return { previousTripData };
     },
     onError: (err, updatedExpenseData, context) => {
-      // Rollback on error
       if (context?.previousTripData) {
         queryClient.setQueryData(["trip", carrierId], context.previousTripData);
       }
-      // Set error state so user sees the error
-      setError(err.message || "Failed to update expense. Changes have been reverted.");
+      const message = err.message || "Failed to update expense. Changes have been reverted.";
+      setError(message);
       setIsSubmitting(false);
+      onNotify?.("error", message);
     },
     onSuccess: (data) => {
-      // Update with real data from server
       queryClient.setQueryData(["trip", carrierId], (old) => {
         if (!old) return old;
         const expenseIdStr = String(expense._id);
         return {
           ...old,
-          expenses: old.expenses?.map(exp => 
+          expenses: old.expenses?.map(exp =>
             String(exp._id) === expenseIdStr ? data.expense : exp
           ) || [],
         };
       });
-      // Invalidate to ensure all related queries are fresh
-      queryClient.invalidateQueries({ queryKey: ["trip", carrierId] });
+      onNotify?.("success", "Expense updated");
       queryClient.invalidateQueries({ queryKey: ["carriers"] });
       queryClient.invalidateQueries({ queryKey: ["driverRentPayments"] });
     },
   });
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     setError(null);
 
-    try {
-      const expenseData = {
-        category,
-        amount: parseFloat(amount) || 0,
-        details: details.trim(),
-        date,
-      };
+    const expenseData = {
+      category,
+      amount: parseFloat(amount) || 0,
+      details: details.trim(),
+      date,
+    };
 
-      if (category === "fuel") {
-        if (liters) expenseData.liters = parseFloat(liters);
-        if (pricePerLiter) expenseData.pricePerLiter = parseFloat(pricePerLiter);
-      }
-
-      if (category === "driver_rent") {
-        if (!driverId) {
-          setError("Please select a driver for driver rent expense");
-          setIsSubmitting(false);
-          return;
-        }
-        expenseData.driver = driverId;
-      }
-
-      try {
-        if (expense) {
-          await updateExpenseMutation.mutateAsync(expenseData);
-        } else {
-          await createExpenseMutation.mutateAsync(expenseData);
-        }
-        // Only close if mutation succeeded (no error thrown)
-        onClose();
-      } catch (mutationError) {
-        // Error is already handled in onError callback, but we catch here
-        // to prevent form from closing on error
-        // Error message is set in onError callback
-        throw mutationError; // Re-throw to be caught by outer catch
-      }
-    } catch (err) {
-      setError(err.message || "Failed to save expense");
-    } finally {
-      setIsSubmitting(false);
+    if (category === "fuel") {
+      if (liters) expenseData.liters = parseFloat(liters);
+      if (pricePerLiter) expenseData.pricePerLiter = parseFloat(pricePerLiter);
     }
+
+    if (category === "driver_rent") {
+      if (!driverId) {
+        setError("Please select a driver for driver rent expense");
+        setIsSubmitting(false);
+        return;
+      }
+      expenseData.driver = driverId;
+    }
+
+    if (expense) {
+      updateExpenseMutation.mutate(expenseData, {
+        onSettled: () => setIsSubmitting(false),
+      });
+    } else {
+      createExpenseMutation.mutate(expenseData, {
+        onSettled: () => setIsSubmitting(false),
+      });
+    }
+    // Close immediately: UI already updated optimistically; success/error toasts handle result
+    onClose();
   };
 
   return (
