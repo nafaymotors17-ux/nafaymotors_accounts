@@ -10,7 +10,7 @@ export function QueryProvider({ children }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 60 * 1000, // 1 minute
+            staleTime: 0, // Always consider data stale; refetch when needed
             refetchOnWindowFocus: true,
           },
         },
