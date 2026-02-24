@@ -2,16 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { getEnabledModules } from "../modules.config";
 import { useUser } from "./UserContext";
 import { syncSessionToCookie } from "@/app/lib/auth/syncSession";
-import { LogOut, User } from "lucide-react";
+import ProfileModal from "./ProfileModal";
+import { LogOut, UserCircle } from "lucide-react";
 
 export default function TabNavigation() {
   const pathname = usePathname();
   const enabledModules = getEnabledModules();
   const { user, loading, logout } = useUser();
+  const [profileOpen, setProfileOpen] = useState(false);
 
   // Ensure cookie is synced on every route change for server components
   useEffect(() => {
@@ -78,13 +80,20 @@ export default function TabNavigation() {
         })}
       </div>
       <div className="flex items-center gap-3 px-2">
-        <div className="flex items-center gap-1.5 text-xs text-gray-600">
-          <User className="w-3.5 h-3.5" />
-          <span className="font-medium">{user.username}</span>
+        <button
+          type="button"
+          onClick={() => setProfileOpen(true)}
+          className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-900 transition-colors"
+        >
+          <UserCircle className="w-3.5 h-3.5" />
+          Profile
+        </button>
+        <span className="text-xs text-gray-500 select-none">
+          {user.username}
           {user.role === "super_admin" && (
-            <span className="text-[10px] text-purple-600 font-medium">(Admin)</span>
+            <span className="text-purple-600 font-medium ml-0.5">(Admin)</span>
           )}
-        </div>
+        </span>
         <button
           onClick={logout}
           className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
@@ -93,6 +102,8 @@ export default function TabNavigation() {
           Logout
         </button>
       </div>
+
+      <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} />
     </div>
   );
 }

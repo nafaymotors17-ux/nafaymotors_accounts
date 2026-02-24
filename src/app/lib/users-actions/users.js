@@ -134,6 +134,9 @@ export async function createUser(formData) {
     };
   } catch (error) {
     console.error("Error creating user:", error);
+    if (error.code === 11000) {
+      return { success: false, error: "Username already exists" };
+    }
     return { success: false, error: "Failed to create user" };
   }
 }
@@ -224,6 +227,46 @@ export async function deleteUser(userId) {
     return { success: true, message: "User deleted successfully" };
   } catch (error) {
     console.error("Error deleting user:", error);
-    return { success: false, error: "Failed to delete user" };
+    return { success: false, error: error.message || "Failed to delete user" };
+  }
+}
+
+/** Update current user's own profile (username, name, address, bankDetails, optional password). */
+export async function updateOwnProfile(formData) {
+  await connectDB();
+  try {
+    const session = await getSession();
+    if (!session?.userId) {
+      return { success: false, error: "Unauthorized" };
+    }
+    const userId = session.userId;
+    const username = formData.get("username")?.trim().toLowerCase();
+    const name = formData.get("name")?.trim() || "";
+    const password = formData.get("password");
+    const address = formData.get("address")?.trim() || "";
+    const bankDetails = formData.get("bankDetails")?.trim() || "";
+    if (!username) {
+      return { success: false, error: "Username is required" };
+    }
+    const existingUser = await User.findOne({ username, _id: { $ne: userId } });
+    if (existingUser) {
+      return { success: false, error: "Username already exists" };
+    }
+    const updateData = { username, name, address, bankDetails };
+    if (password && password.trim() !== "") {
+      updateData.password = password.trim();
+    }
+    const updatedUser = await User.findByIdAndUpdate(userId, updateData, { new: true })
+      .select("_id username name role address bankDetails")
+      .lean();
+    if (!updatedUser) {
+      return { success: false, error: "User not found" };
+    }
+    revalidatePath("/profile");
+    revalidatePath("/admin/users");
+    return { success: true, user: JSON.parse(JSON.stringify(updatedUser)) };
+  } catch (error) {
+    console.error("Error updating profile:", error);
+    return { success: false, error: error.message || "Failed to update profile" };
   }
 }

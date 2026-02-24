@@ -29,6 +29,7 @@ function buildParamsFromSearchParams(searchParams) {
   const isActive = searchParams.get("isActive");
   const userId = searchParams.get("userId");
   const globalSearch = searchParams.get("globalSearch");
+  const chassis = searchParams.get("chassis");
   if (page) params.page = page;
   if (limit) params.limit = limit;
   if (startDate) params.startDate = startDate;
@@ -38,6 +39,7 @@ function buildParamsFromSearchParams(searchParams) {
   if (isActive) params.isActive = isActive;
   if (userId) params.userId = userId;
   if (globalSearch) params.globalSearch = globalSearch;
+  if (chassis) params.chassis = chassis;
   return params;
 }
 

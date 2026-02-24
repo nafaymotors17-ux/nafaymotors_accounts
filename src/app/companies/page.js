@@ -2,9 +2,9 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getCompanyBalances, setCompanyCredit } from "@/app/lib/invoice-actions/company-balances";
-import { createCompany } from "@/app/lib/carriers-actions/companies";
+import { createCompany, updateCompanyName, deleteCompany } from "@/app/lib/carriers-actions/companies";
 import { useState, useMemo } from "react";
-import { Edit2, X, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, Plus } from "lucide-react";
+import { Edit2, X, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, Plus, Trash2 } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
 
 export default function CompaniesPage() {
@@ -12,12 +12,14 @@ export default function CompaniesPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10); // Default page size is 10
   const [editingCompany, setEditingCompany] = useState(null);
-  const [newCreditBalance, setNewCreditBalance] = useState("");
+  const [editCompanyName, setEditCompanyName] = useState("");
+  const [editCreditBalance, setEditCreditBalance] = useState("");
   const [sortField, setSortField] = useState(null);
   const [sortDirection, setSortDirection] = useState("asc"); // "asc" or "desc"
   const [showAddCompany, setShowAddCompany] = useState(false);
   const [newCompanyName, setNewCompanyName] = useState("");
-  
+  const [deleteError, setDeleteError] = useState(null);
+
   const queryClient = useQueryClient();
 
   const {
@@ -131,22 +133,34 @@ export default function CompaniesPage() {
     return <ArrowDown className="w-3 h-3 inline-block ml-1 text-blue-600" />;
   };
 
-  const handleEditCredit = (balance) => {
+  const handleOpenUpdate = (balance) => {
     setEditingCompany(balance);
-    setNewCreditBalance(balance.creditBalance?.toString() || "0");
+    setEditCompanyName(balance.companyName || "");
+    setEditCreditBalance((balance.creditBalance ?? 0).toString());
+    setDeleteError(null);
   };
 
-  const handleCloseModal = () => {
+  const handleCloseUpdate = () => {
     setEditingCompany(null);
-    setNewCreditBalance("");
+    setEditCompanyName("");
+    setEditCreditBalance("");
+    updateCompanyMutation.reset();
   };
 
-
-  const updateCreditMutation = useMutation({
-    mutationFn: ({ companyName, newBalance }) => setCompanyCredit(companyName, parseFloat(newBalance) || 0),
+  const updateCompanyMutation = useMutation({
+    mutationFn: async ({ companyId, currentName, newName, creditBalance }) => {
+      const nameTrimmed = (newName || "").trim().toUpperCase();
+      if (nameTrimmed !== (currentName || "").trim().toUpperCase()) {
+        const r = await updateCompanyName(companyId, nameTrimmed);
+        if (r?.error) throw new Error(r.error);
+      }
+      const setResult = await setCompanyCredit(nameTrimmed, parseFloat(creditBalance) || 0);
+      if (setResult?.success === false && setResult?.error) throw new Error(setResult.error);
+      return setResult;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["company-balances"] });
-      handleCloseModal();
+      handleCloseUpdate();
     },
   });
 
@@ -160,6 +174,18 @@ export default function CompaniesPage() {
     },
   });
 
+  const deleteCompanyMutation = useMutation({
+    mutationFn: (companyId) => deleteCompany(companyId),
+    onSuccess: (data) => {
+      if (data?.success) {
+        queryClient.invalidateQueries({ queryKey: ["company-balances"] });
+        setDeleteError(null);
+      } else if (data?.error) {
+        setDeleteError(data.error);
+      }
+    },
+  });
+
 
   const handleCreateCompany = (e) => {
     e.preventDefault();
@@ -169,20 +195,28 @@ export default function CompaniesPage() {
     createCompanyMutation.mutate(newCompanyName);
   };
 
-  const handleUpdateCredit = (e) => {
+  const handleUpdateCompany = (e) => {
     e.preventDefault();
-    if (!editingCompany) return;
-    
-    const balance = parseFloat(newCreditBalance);
+    if (!editingCompany || !editCompanyName.trim()) return;
+    const balance = parseFloat(editCreditBalance);
     if (isNaN(balance)) {
-      alert("Please enter a valid number");
+      alert("Please enter a valid credit balance");
       return;
     }
-
-    updateCreditMutation.mutate({
-      companyName: editingCompany.companyName,
-      newBalance: balance,
+    updateCompanyMutation.mutate({
+      companyId: editingCompany._id,
+      currentName: editingCompany.companyName,
+      newName: editCompanyName,
+      creditBalance: balance,
     });
+  };
+
+  const handleDeleteClick = (balance) => {
+    setDeleteError(null);
+    if (!window.confirm(`Delete company "${balance.companyName}"? This can only be done if the company is not used in any trip.`)) {
+      return;
+    }
+    deleteCompanyMutation.mutate(balance._id);
   };
 
   return (
@@ -323,11 +357,19 @@ export default function CompaniesPage() {
                         <td className="px-2 py-1.5 whitespace-nowrap text-center">
                           <div className="flex items-center justify-center gap-2">
                             <button
-                              onClick={() => handleEditCredit(balance)}
+                              onClick={() => handleOpenUpdate(balance)}
                               className="text-blue-600 hover:text-blue-800"
-                              title="Update Credit Balance"
+                              title="Update Company"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteClick(balance)}
+                              disabled={deleteCompanyMutation.isPending}
+                              className="text-red-600 hover:text-red-800 disabled:opacity-50"
+                              title="Delete company (only if not used in any trip)"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </td>
@@ -370,62 +412,59 @@ export default function CompaniesPage() {
         </>
       )}
 
-      {/* Edit Credit Balance Modal */}
+      {/* Update Company Modal */}
       {editingCompany && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-2xl max-w-md w-full p-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-gray-800">
-                Update Credit Balance
-              </h3>
-              <button
-                onClick={handleCloseModal}
-                className="text-gray-400 hover:text-gray-600"
-              >
+              <h3 className="text-lg font-bold text-gray-800">Update Company</h3>
+              <button onClick={handleCloseUpdate} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="mb-4">
-              <p className="text-sm text-gray-600 mb-2">
-                Company: <span className="font-semibold">{editingCompany.companyName}</span>
-              </p>
-              <p className="text-xs text-gray-500 mb-4">
-                Current Credit Balance: R
-                {(editingCompany.creditBalance || 0).toLocaleString("en-US", {
-                  minimumFractionDigits: 2,
-                })}
-              </p>
-            </div>
-
-            <form onSubmit={handleUpdateCredit} className="space-y-4">
+            <form onSubmit={handleUpdateCompany} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  New Credit Balance *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Company Name *</label>
+                <input
+                  type="text"
+                  value={editCompanyName}
+                  onChange={(e) => setEditCompanyName(e.target.value.toUpperCase())}
+                  placeholder="Company name"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                  disabled={updateCompanyMutation.isPending}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Credit Balance *</label>
                 <input
                   type="number"
                   step="0.01"
-                  value={newCreditBalance}
-                  onChange={(e) => setNewCreditBalance(e.target.value)}
+                  value={editCreditBalance}
+                  onChange={(e) => setEditCreditBalance(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="0.00"
                   required
+                  disabled={updateCompanyMutation.isPending}
                 />
-            
               </div>
-
+              {updateCompanyMutation.isError && (
+                <p className="text-xs text-red-600">
+                  {updateCompanyMutation.error?.message || "Failed to update company"}
+                </p>
+              )}
               <div className="flex gap-2 pt-2">
                 <button
                   type="submit"
-                  disabled={updateCreditMutation.isPending}
+                  disabled={updateCompanyMutation.isPending || !editCompanyName.trim()}
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                 >
-                  {updateCreditMutation.isPending ? "Updating..." : "Update Balance"}
+                  {updateCompanyMutation.isPending ? "Saving..." : "Save"}
                 </button>
                 <button
                   type="button"
-                  onClick={handleCloseModal}
+                  onClick={handleCloseUpdate}
                   className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
                 >
                   Cancel
@@ -433,6 +472,19 @@ export default function CompaniesPage() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* Delete error toast */}
+      {deleteError && (
+        <div className="fixed bottom-4 right-4 max-w-sm bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg shadow-lg flex items-start gap-2 z-50">
+          <span className="text-sm flex-1">{deleteError}</span>
+          <button
+            onClick={() => setDeleteError(null)}
+            className="text-red-600 hover:text-red-800"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 

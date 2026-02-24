@@ -26,6 +26,7 @@ function CompactFilters({ companies, carriers = [], isSuperAdmin = false, users 
     const isActive = formData.get("isActive");
     const userId = formData.get("userId");
     const globalSearch = formData.get("globalSearch");
+    const chassis = formData.get("chassis");
 
     if (startDate) newParams.set("startDate", startDate);
     if (endDate) newParams.set("endDate", endDate);
@@ -34,6 +35,7 @@ function CompactFilters({ companies, carriers = [], isSuperAdmin = false, users 
     if (isActive) newParams.set("isActive", isActive);
     if (userId && isSuperAdmin) newParams.set("userId", userId);
     if (globalSearch) newParams.set("globalSearch", globalSearch);
+    if (chassis) newParams.set("chassis", chassis);
 
     // Update URL - React Query will automatically refetch
     const url = `/carrier-trips?${newParams.toString()}`;
@@ -49,7 +51,7 @@ function CompactFilters({ companies, carriers = [], isSuperAdmin = false, users 
   const hasActiveFilters = useMemo(() => 
     !!(params.get("startDate") || params.get("endDate") || params.get("company") || 
        params.get("tripNumber") || params.get("isActive") || 
-       params.get("userId") || params.get("globalSearch")),
+       params.get("userId") || params.get("globalSearch") || params.get("chassis")),
     [params]
   );
   
@@ -60,6 +62,7 @@ function CompactFilters({ companies, carriers = [], isSuperAdmin = false, users 
   const selectedIsActive = useMemo(() => params.get("isActive") || "", [params]);
   const selectedUserId = useMemo(() => params.get("userId") || "", [params]);
   const globalSearchValue = useMemo(() => params.get("globalSearch") || "", [params]);
+  const chassisValue = useMemo(() => params.get("chassis") || "", [params]);
   
   // Show invoice button only when company and both dates are selected
   const canGenerateInvoice = useMemo(
@@ -153,6 +156,21 @@ function CompactFilters({ companies, carriers = [], isSuperAdmin = false, users 
               placeholder="Search trips, trucks..."
               className="w-48 px-1.5 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
               title="Search by trip number or truck name/number"
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <label className="text-[10px] font-medium text-gray-600 whitespace-nowrap">
+              Chassis:
+            </label>
+            <input
+              type="text"
+              name="chassis"
+              key={`chassis-${chassisValue}`}
+              defaultValue={chassisValue}
+              placeholder="Chassis number"
+              className="w-36 px-1.5 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              title="Show trips that contain a car with this chassis number"
             />
           </div>
 

@@ -168,6 +168,16 @@ export async function getAllCarriers(searchParams = {}) {
       }
     }
 
+    // Chassis filter (cars) - show trips that have at least one car with matching chassis
+    if (searchParams.chassis) {
+      const chassis = decodeURIComponent(searchParams.chassis).trim();
+      if (chassis) {
+        carLookupMatchConditions.push({
+          chassis: { $regex: escapeRegex(chassis), $options: "i" },
+        });
+      }
+    }
+
     const hasCarFilters = carLookupMatchConditions.length > 1;
     const carLookupMatch =
       carLookupMatchConditions.length === 1

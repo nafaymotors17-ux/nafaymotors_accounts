@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import mongoose from "mongoose";
 import connectDB from "@/app/lib/dbConnect";
 import Carrier from "@/app/lib/models/Carrier";
+import Car from "@/app/lib/models/Car";
+import Invoice from "@/app/lib/models/Invoice";
 import { getSession } from "@/app/lib/auth/getSession";
 import Company from "@/app/lib/models/Company";
 
@@ -191,6 +193,116 @@ const company = await new Company({
       return { error: "Company with this name already exists" };
     }
     return { error: "Failed to create company" };
+  }
+}
+
+/**
+ * Update company name. Also updates Car.companyName and Invoice.clientCompanyName
+ * so trip and invoice data stay consistent.
+ */
+export async function updateCompanyName(companyId, newName) {
+  await connectDB();
+  try {
+    const session = await getSession();
+    if (!session) {
+      return { error: "Unauthorized" };
+    }
+
+    const trimmedNew = (newName || "").trim().toUpperCase();
+    if (!trimmedNew) {
+      return { error: "Company name is required" };
+    }
+
+    if (!companyId || !mongoose.Types.ObjectId.isValid(companyId)) {
+      return { error: "Invalid company" };
+    }
+
+    const company = await Company.findById(companyId).lean();
+    if (!company) {
+      return { error: "Company not found" };
+    }
+
+    // Restrict to own company unless super admin
+    if (session.role !== "super_admin" && company.userId?.toString() !== session.userId?.toString()) {
+      return { error: "Unauthorized" };
+    }
+
+    const oldName = (company.name || "").trim().toUpperCase();
+    if (oldName === trimmedNew) {
+      return { success: true };
+    }
+
+    const existing = await Company.findOne({ name: trimmedNew, _id: { $ne: companyId } });
+    if (existing) {
+      return { error: "Company with this name already exists" };
+    }
+
+    await Company.updateOne({ _id: companyId }, { name: trimmedNew });
+    await Car.updateMany(
+      { companyName: { $regex: `^${oldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" } },
+      { companyName: trimmedNew }
+    );
+    await Invoice.updateMany(
+      { clientCompanyName: { $regex: `^${oldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" } },
+      { clientCompanyName: trimmedNew }
+    );
+
+    revalidatePath("/companies");
+    revalidatePath("/carrier-trips");
+    revalidatePath("/invoices");
+    return { success: true };
+  } catch (error) {
+    console.error("Error updating company name:", error);
+    if (error.code === 11000) {
+      return { error: "Company with this name already exists" };
+    }
+    return { error: "Failed to update company name" };
+  }
+}
+
+/**
+ * Delete company only if it is not assigned in any trip (no Car has this companyName).
+ */
+export async function deleteCompany(companyId) {
+  await connectDB();
+  try {
+    const session = await getSession();
+    if (!session) {
+      return { error: "Unauthorized" };
+    }
+
+    if (!companyId || !mongoose.Types.ObjectId.isValid(companyId)) {
+      return { error: "Invalid company" };
+    }
+
+    const company = await Company.findById(companyId).lean();
+    if (!company) {
+      return { error: "Company not found" };
+    }
+
+    if (session.role !== "super_admin" && company.userId?.toString() !== session.userId?.toString()) {
+      return { error: "Unauthorized" };
+    }
+
+    const companyNameNorm = (company.name || "").trim().toUpperCase();
+    const count = await Car.countDocuments({
+      companyName: { $regex: `^${companyNameNorm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" },
+    });
+
+    if (count > 0) {
+      return {
+        error: "Company cannot be deleted because it is assigned in one or more trips. Remove the company from all trips first.",
+      };
+    }
+
+    await Company.findByIdAndDelete(companyId);
+    revalidatePath("/companies");
+    revalidatePath("/carrier-trips");
+    revalidatePath("/invoices");
+    return { success: true };
+  } catch (error) {
+    console.error("Error deleting company:", error);
+    return { error: "Failed to delete company" };
   }
 }
 

@@ -25,6 +25,17 @@ export function UserProvider({ children }) {
     // Do NOT clear cookie when localStorage is empty - server may still have valid cookie (Vercel fix)
   }, [pathname]);
 
+  const refetchUser = async () => {
+    try {
+      const userResult = await getCurrentUser();
+      if (userResult.success && userResult.user) {
+        setFullUserData(userResult.user);
+      }
+    } catch (err) {
+      console.error("Error fetching full user data:", err);
+    }
+  };
+
   useEffect(() => {
     const session = getSessionFromStorage();
 
@@ -110,7 +121,7 @@ export function UserProvider({ children }) {
   };
 
   return (
-    <UserContext.Provider value={{ user, fullUserData, loading, logout, setUser }}>
+    <UserContext.Provider value={{ user, fullUserData, loading, logout, setUser, refetchUser }}>
       {children}
     </UserContext.Provider>
   );
