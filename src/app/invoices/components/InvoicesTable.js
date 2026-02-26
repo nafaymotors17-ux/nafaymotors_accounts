@@ -225,7 +225,18 @@ export default function InvoicesTable({
         const doc = new jsPDF();
         const margin = 14;
         const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const bottomMargin = 25;
         let currentY = 20;
+
+        // Add new page if content would overflow; returns Y to use (same or top of new page).
+        const addPageIfNeeded = (y, spaceNeeded = 10) => {
+          if (y + spaceNeeded > pageHeight - bottomMargin) {
+            doc.addPage();
+            return margin;
+          }
+          return y;
+        };
 
         // Header - Sender Company
         doc.setFont("helvetica", "bold");
@@ -308,7 +319,7 @@ export default function InvoicesTable({
           },
         ]);
 
-        // Generate table
+        // Generate table (allow multiple pages; repeat header on each page)
         autoTable(doc, {
           startY: currentY,
           head: [
@@ -324,6 +335,7 @@ export default function InvoicesTable({
           ],
           body: tableRows,
           theme: "grid",
+          showHead: "everyPage",
           headStyles: {
             fillColor: [31, 41, 55],
             halign: "left",
@@ -347,6 +359,7 @@ export default function InvoicesTable({
 
         // VAT and Total section
         let finalY = doc.lastAutoTable.finalY + 10;
+        finalY = addPageIfNeeded(finalY, 35);
         doc.setFont("helvetica", "normal");
         doc.setFontSize(10);
 
@@ -381,6 +394,7 @@ export default function InvoicesTable({
         finalY += 10;
 
         // Payment Information Section
+        finalY = addPageIfNeeded(finalY, 50);
         const paymentInfo = getPaymentInfo(invoice);
         // Always show payment information section
         // Add a separator line
@@ -443,6 +457,7 @@ export default function InvoicesTable({
         finalY += 4;
 
         // Thank you message
+        finalY = addPageIfNeeded(finalY, 15);
         doc.setFont("helvetica", "normal");
         doc.setFontSize(9);
         doc.setTextColor(100);
@@ -454,8 +469,10 @@ export default function InvoicesTable({
         );
         finalY += 8;
 
-        // Descriptions section
+        // Descriptions section (with page breaks and text wrap for long lines)
+        const textMaxWidth = pageWidth - 2 * margin - 10;
         if (invoice.descriptions && invoice.descriptions.length > 0) {
+          finalY = addPageIfNeeded(finalY, 15);
           doc.setFont("helvetica", "bold");
           doc.setFontSize(10);
           doc.setTextColor(31, 41, 55);
@@ -466,15 +483,20 @@ export default function InvoicesTable({
           doc.setFontSize(9);
           invoice.descriptions.forEach((desc) => {
             if (desc.trim()) {
-              doc.text(`• ${desc}`, margin + 5, finalY);
-              finalY += 5;
+              const lines = doc.splitTextToSize(`• ${desc}`, textMaxWidth);
+              lines.forEach((line) => {
+                finalY = addPageIfNeeded(finalY, 6);
+                doc.text(line, margin + 5, finalY);
+                finalY += 5;
+              });
             }
           });
           finalY += 3;
         }
 
-        // Bank Details section
+        // Bank Details section (with page breaks and text wrap for long lines)
         if (senderBankDetails) {
+          finalY = addPageIfNeeded(finalY, 20);
           finalY += 5;
           doc.setFont("helvetica", "bold");
           doc.setFontSize(10);
@@ -488,8 +510,12 @@ export default function InvoicesTable({
           const bankLines = senderBankDetails.split("\n");
           bankLines.forEach((line) => {
             if (line.trim()) {
-              doc.text(line.trim(), margin + 5, finalY);
-              finalY += 4;
+              const wrapped = doc.splitTextToSize(line.trim(), textMaxWidth);
+              wrapped.forEach((wrappedLine) => {
+                finalY = addPageIfNeeded(finalY, 5);
+                doc.text(wrappedLine, margin + 5, finalY);
+                finalY += 4;
+              });
             }
           });
         }
