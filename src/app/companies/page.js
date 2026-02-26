@@ -6,6 +6,7 @@ import { createCompany, updateCompanyName, deleteCompany } from "@/app/lib/carri
 import { useState, useMemo } from "react";
 import { Edit2, X, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, Plus, Trash2 } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
+import CompanyFinancialStatementModal from "./CompanyFinancialStatementModal";
 
 export default function CompaniesPage() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -19,6 +20,7 @@ export default function CompaniesPage() {
   const [showAddCompany, setShowAddCompany] = useState(false);
   const [newCompanyName, setNewCompanyName] = useState("");
   const [deleteError, setDeleteError] = useState(null);
+  const [statementCompany, setStatementCompany] = useState(null);
 
   const queryClient = useQueryClient();
 
@@ -331,9 +333,13 @@ export default function CompaniesPage() {
                     return (
                       <tr key={balance.companyName} className="hover:bg-gray-50">
                         <td className="px-2 py-1.5 whitespace-nowrap">
-                          <div className="text-xs font-medium text-gray-900">
+                          <button
+                            type="button"
+                            onClick={() => setStatementCompany(balance)}
+                            className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline text-left"
+                          >
                             {balance.companyName}
-                          </div>
+                          </button>
                         </td>
                         <td className="px-2 py-1.5 whitespace-nowrap text-right">
                           <span className="text-xs font-semibold text-green-600">
@@ -554,6 +560,16 @@ export default function CompaniesPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Company Financial Statement Modal */}
+      {statementCompany && (
+        <CompanyFinancialStatementModal
+          companyName={statementCompany.companyName}
+          creditBalance={statementCompany.creditBalance}
+          totalDue={statementCompany.totalDue}
+          onClose={() => setStatementCompany(null)}
+        />
       )}
 
     </div>
