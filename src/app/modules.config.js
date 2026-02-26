@@ -61,6 +61,13 @@ export const modules = [
     icon: '👤',
     enabled: true,
   },
+  {
+    id: 'diesel-expenses',
+    name: 'Diesel Expenses',
+    path: '/diesel-expenses',
+    icon: '⛽',
+    enabled: true,
+  },
   // {
   //   id: 'sales',
   //   name: 'Sales',
