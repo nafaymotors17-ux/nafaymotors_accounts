@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { getDieselExpensesByTrucks } from "@/app/lib/diesel-expenses-actions/diesel-expenses";
 import { useUser } from "@/app/components/UserContext";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { RefreshCw, Fuel, ChevronLeft, ChevronRight } from "lucide-react";
 import { formatDate } from "@/app/lib/utils/dateFormat";
 
@@ -52,9 +52,12 @@ export default function DieselExpensesPage() {
     enabled: !userLoading && !!userId,
   });
 
-  const byTruck = data?.byTruck ?? [];
-  const overall = data?.overall ?? { totalLiters: 0, totalAmount: 0, expenseCount: 0 };
-  const trucks = data?.trucks ?? [];
+  const byTruck = useMemo(() => data?.byTruck ?? [], [data?.byTruck]);
+  const overall = useMemo(
+    () => data?.overall ?? { totalLiters: 0, totalAmount: 0, expenseCount: 0 },
+    [data?.overall]
+  );
+  const trucks = useMemo(() => data?.trucks ?? [], [data?.trucks]);
 
   // Flatten to one list (date desc) and paginate
   const flatRows = useMemo(() => {
@@ -72,7 +75,10 @@ export default function DieselExpensesPage() {
     return rows;
   }, [byTruck]);
 
-  const totalPages = Math.max(1, Math.ceil(flatRows.length / PER_PAGE));
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(flatRows.length / PER_PAGE)),
+    [flatRows.length]
+  );
   const paginatedRows = useMemo(
     () => flatRows.slice((page - 1) * PER_PAGE, page * PER_PAGE),
     [flatRows, page]
@@ -80,11 +86,9 @@ export default function DieselExpensesPage() {
 
   useEffect(() => setPage(1), [dateRange.startDate, dateRange.endDate, truckFilter.length]);
 
-  const handleTruckFilterChange = (truckId, checked) => {
-    if (checked) setTruckFilter((prev) => (prev.includes(truckId) ? prev : [...prev, truckId]));
-    else setTruckFilter((prev) => prev.filter((id) => id !== truckId));
-  };
-  const selectAllTrucks = () => setTruckFilter([]);
+  const handleTruckSelect = useCallback((value) => {
+    setTruckFilter(value === "all" ? [] : [value]);
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 pt-14 pb-8">
@@ -118,10 +122,7 @@ export default function DieselExpensesPage() {
             <label className="block text-xs text-gray-500 mb-0.5">Truck</label>
             <select
               value={truckFilter.length === 0 ? "all" : truckFilter[0]}
-              onChange={(e) => {
-                const v = e.target.value;
-                setTruckFilter(v === "all" ? [] : [v]);
-              }}
+              onChange={(e) => handleTruckSelect(e.target.value)}
               className="border border-gray-300 rounded px-2 py-1 text-sm min-w-[140px]"
             >
               <option value="all">All trucks</option>
