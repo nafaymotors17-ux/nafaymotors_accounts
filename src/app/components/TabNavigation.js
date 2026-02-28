@@ -2,18 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { getEnabledModules } from "../modules.config";
 import { useUser } from "./UserContext";
 import { syncSessionToCookie } from "@/app/lib/auth/syncSession";
-import ProfileModal from "./ProfileModal";
-import { LogOut, UserCircle } from "lucide-react";
+import { LogOut, User } from "lucide-react";
 
 export default function TabNavigation() {
   const pathname = usePathname();
   const enabledModules = getEnabledModules();
   const { user, loading, logout } = useUser();
-  const [profileOpen, setProfileOpen] = useState(false);
 
   // Ensure cookie is synced on every route change for server components
   useEffect(() => {
@@ -23,7 +21,10 @@ export default function TabNavigation() {
   }, [user, pathname]);
 
   // Don't show navigation on login page or trip detail pages
-  if (pathname === "/login" || (pathname?.startsWith("/carrier-trips/") && pathname !== "/carrier-trips")) {
+  if (
+    pathname === "/login" ||
+    (pathname?.startsWith("/carrier-trips/") && pathname !== "/carrier-trips")
+  ) {
     return null;
   }
 
@@ -43,7 +44,20 @@ export default function TabNavigation() {
   const filteredModules = enabledModules.filter((module) => {
     // Only super admin can see accounting
     if (module.id === "accounting") {
-      return user?.role === "super_admin";
+      // Check role - ensure it's exactly "super_admin"
+      const userRole = user?.role;
+      const isSuperAdmin = userRole === "super_admin";
+
+      // Debug logging
+      if (!isSuperAdmin) {
+        console.log(
+          "[TabNavigation] Accounting hidden - user role:",
+          userRole,
+          "Expected: super_admin",
+        );
+      }
+
+      return isSuperAdmin;
     }
     return true;
   });
@@ -52,8 +66,9 @@ export default function TabNavigation() {
     <div className="flex justify-between items-center">
       <div className="flex gap-0.5 border-b border-gray-200 bg-white">
         {filteredModules.map((module) => {
-          const isActive = pathname === module.path || pathname.startsWith(module.path + '/');
-          
+          const isActive =
+            pathname === module.path || pathname.startsWith(module.path + "/");
+
           return (
             <Link
               key={module.id}
@@ -80,20 +95,15 @@ export default function TabNavigation() {
         })}
       </div>
       <div className="flex items-center gap-3 px-2">
-        <button
-          type="button"
-          onClick={() => setProfileOpen(true)}
-          className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-900 transition-colors"
-        >
-          <UserCircle className="w-3.5 h-3.5" />
-          Profile
-        </button>
-        <span className="text-xs text-gray-500 select-none">
-          {user.username}
+        <div className="flex items-center gap-1.5 text-xs text-gray-600">
+          <User className="w-3.5 h-3.5" />
+          <span className="font-medium">{user.username}</span>
           {user.role === "super_admin" && (
-            <span className="text-purple-600 font-medium ml-0.5">(Admin)</span>
+            <span className="text-[10px] text-purple-600 font-medium">
+              (Admin)
+            </span>
           )}
-        </span>
+        </div>
         <button
           onClick={logout}
           className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
@@ -102,8 +112,6 @@ export default function TabNavigation() {
           Logout
         </button>
       </div>
-
-      <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} />
     </div>
   );
 }

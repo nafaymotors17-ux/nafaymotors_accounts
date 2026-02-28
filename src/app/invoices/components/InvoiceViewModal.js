@@ -7,6 +7,7 @@ import { formatDate } from "@/app/lib/utils/dateFormat";
 import { setCompanyCredit } from "@/app/lib/invoice-actions/company-balances";
 import { useUser } from "@/app/components/UserContext";
 import PaymentTrackingSection from "./PaymentTrackingSection";
+import ReceiptsSection from "./ReceiptsSection";
 import TripDetailsModal from "./TripDetailsModal";
 
 export default function InvoiceViewModal({
@@ -387,6 +388,18 @@ export default function InvoiceViewModal({
                 onRecordPayment={onRecordPayment}
                 onDeletePayment={onDeletePayment}
               />
+
+              {/* Receipts Section */}
+              <div className="border rounded-lg overflow-hidden">
+                <div className="bg-gray-50 p-3 border-b">
+                  <h3 className="font-semibold text-gray-800 text-sm">
+                    Payment Receipts
+                  </h3>
+                </div>
+                <div className="p-4">
+                  <ReceiptsSection invoiceId={invoice._id} invoice={invoice} />
+                </div>
+              </div>
             </div>
           )}
         </div>

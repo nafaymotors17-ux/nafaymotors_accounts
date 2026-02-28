@@ -12,6 +12,7 @@ import {
   updateCompanyCredit,
   updateCompanyDueBalance,
 } from "./company-balances";
+import { createReceipt } from "./receipts";
 
 // Generate unique invoice number (format: INV-YYYYMMDD-XXX)
 async function generateInvoiceNumber(maxRetries = 10) {
@@ -633,6 +634,14 @@ export async function recordPayment(invoiceId, paymentData) {
     // Save invoice (pre-save hook will update paymentStatus)
     await invoice.save();
 
+    // Create receipt automatically when payment is recorded
+    const paymentIndex = invoice.payments.length - 1; // Index of the newly added payment
+    const receiptResult = await createReceipt({
+      invoiceId: invoiceId,
+      paymentIndex: paymentIndex,
+      senderBankDetails: session.bankDetails || "",
+    });
+
     // Update company balances
     const companyName = invoice.clientCompanyName?.toUpperCase().trim();
     if (companyName) {
@@ -661,10 +670,11 @@ export async function recordPayment(invoiceId, paymentData) {
     return {
       success: true,
       invoice: JSON.parse(JSON.stringify(invoice)),
+      receipt: receiptResult.success ? receiptResult.receipt : null,
       message:
         excessAmount > 0
-          ? `Payment recorded. R${excessAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} added to company credit.`
-          : "Payment recorded successfully",
+          ? `Payment recorded. R${excessAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} added to company credit. Receipt #${receiptResult.receipt?.receiptNumber || "generated"}.`
+          : `Payment recorded successfully. Receipt #${receiptResult.receipt?.receiptNumber || "generated"}.`,
     };
   } catch (error) {
     console.error("Error recording payment:", error);

@@ -6,7 +6,10 @@ import connectDB from "@/app/lib/dbConnect";
 import Driver from "@/app/lib/models/Driver";
 import { getSession } from "@/app/lib/auth/getSession";
 
-export async function getAllDrivers(searchParams = {}, sessionFromClient = null) {
+export async function getAllDrivers(
+  searchParams = {},
+  sessionFromClient = null,
+) {
   await connectDB();
   try {
     // Use session from client (localStorage) when passed - avoids cookie sync issues on Vercel
@@ -17,7 +20,7 @@ export async function getAllDrivers(searchParams = {}, sessionFromClient = null)
 
     // Build query
     const query = {};
-    
+
     // Filter by userId - super admin can filter by any user, others use their own userId
     if (searchParams.userId && session.role === "super_admin") {
       if (mongoose.Types.ObjectId.isValid(searchParams.userId)) {
@@ -31,12 +34,13 @@ export async function getAllDrivers(searchParams = {}, sessionFromClient = null)
 
     // Filter by active status
     if (searchParams.isActive !== undefined && searchParams.isActive !== "") {
-      const isActiveValue = searchParams.isActive === "true" || searchParams.isActive === true;
+      const isActiveValue =
+        searchParams.isActive === "true" || searchParams.isActive === true;
       if (isActiveValue) {
         query.$or = [
           { isActive: true },
           { isActive: { $exists: false } },
-          { isActive: null }
+          { isActive: null },
         ];
       } else {
         query.isActive = false;
@@ -47,13 +51,13 @@ export async function getAllDrivers(searchParams = {}, sessionFromClient = null)
     if (searchParams.search) {
       const searchTerm = decodeURIComponent(searchParams.search).trim();
       if (searchTerm) {
-        const escapedSearch = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const escapedSearch = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const searchRegex = { $regex: escapedSearch, $options: "i" };
         query.$or = [
           { name: searchRegex },
           { phone: searchRegex },
           { email: searchRegex },
-          { licenseNumber: searchRegex }
+          { licenseNumber: searchRegex },
         ];
       }
     }
@@ -63,15 +67,18 @@ export async function getAllDrivers(searchParams = {}, sessionFromClient = null)
       .sort({ name: 1 })
       .lean();
 
-    const serialized = drivers.map(driver => ({
+    const serialized = drivers.map((driver) => ({
       ...driver,
       _id: driver._id.toString(),
       userId: driver.userId?.toString() || driver.userId,
-      user: driver.userId && typeof driver.userId === 'object' ? {
-        _id: driver.userId._id?.toString() || driver.userId._id,
-        username: driver.userId.username,
-        role: driver.userId.role
-      } : null,
+      user:
+        driver.userId && typeof driver.userId === "object"
+          ? {
+              _id: driver.userId._id?.toString() || driver.userId._id,
+              username: driver.userId.username,
+              role: driver.userId.role,
+            }
+          : null,
     }));
 
     return {
@@ -100,22 +107,30 @@ export async function getDriverById(driverId) {
     }
 
     // Check permissions
-    if (session.role !== "super_admin" && driver.userId?.toString() !== session.userId) {
+    if (
+      session.role !== "super_admin" &&
+      driver.userId?.toString() !== session.userId
+    ) {
       return { error: "Unauthorized" };
     }
 
     return {
       success: true,
-      driver: JSON.parse(JSON.stringify({
-        ...driver,
-        _id: driver._id.toString(),
-        userId: driver.userId?.toString() || driver.userId,
-        user: driver.userId && typeof driver.userId === 'object' ? {
-          _id: driver.userId._id?.toString() || driver.userId._id,
-          username: driver.userId.username,
-          role: driver.userId.role
-        } : null,
-      })),
+      driver: JSON.parse(
+        JSON.stringify({
+          ...driver,
+          _id: driver._id.toString(),
+          userId: driver.userId?.toString() || driver.userId,
+          user:
+            driver.userId && typeof driver.userId === "object"
+              ? {
+                  _id: driver.userId._id?.toString() || driver.userId._id,
+                  username: driver.userId.username,
+                  role: driver.userId.role,
+                }
+              : null,
+        }),
+      ),
     };
   } catch (error) {
     console.error("Error fetching driver:", error);
@@ -143,23 +158,24 @@ export async function createDriver(formData) {
 
     // Super admin can select userId, regular users use their own
     const selectedUserId = formData.get("userId");
-    let targetUserId = (session.role === "super_admin" && selectedUserId) 
-      ? selectedUserId 
-      : session.userId;
-    
+    let targetUserId =
+      session.role === "super_admin" && selectedUserId
+        ? selectedUserId
+        : session.userId;
+
     if (mongoose.Types.ObjectId.isValid(targetUserId)) {
       targetUserId = new mongoose.Types.ObjectId(targetUserId);
     }
 
     // Check if driver name already exists for this user
-    const existingDriver = await Driver.findOne({ 
+    const existingDriver = await Driver.findOne({
       name: name.trim(),
-      userId: targetUserId
+      userId: targetUserId,
     });
 
     if (existingDriver) {
-      return { 
-        error: `Driver "${name}" already exists for this user. Please use a different name.` 
+      return {
+        error: `Driver "${name}" already exists for this user. Please use a different name.`,
       };
     }
 
@@ -203,7 +219,10 @@ export async function updateDriver(driverId, formData) {
     }
 
     // Check permissions
-    if (session.role !== "super_admin" && driver.userId.toString() !== session.userId) {
+    if (
+      session.role !== "super_admin" &&
+      driver.userId.toString() !== session.userId
+    ) {
       return { error: "Unauthorized" };
     }
 
@@ -222,12 +241,12 @@ export async function updateDriver(driverId, formData) {
       const existingDriver = await Driver.findOne({
         name: name.trim(),
         userId: driver.userId,
-        _id: { $ne: driverId }
+        _id: { $ne: driverId },
       });
 
       if (existingDriver) {
-        return { 
-          error: `Driver "${name}" already exists for this user. Please use a different name.` 
+        return {
+          error: `Driver "${name}" already exists for this user. Please use a different name.`,
         };
       }
     }
@@ -268,17 +287,20 @@ export async function deleteDriver(driverId) {
     }
 
     // Check permissions
-    if (session.role !== "super_admin" && driver.userId.toString() !== session.userId) {
+    if (
+      session.role !== "super_admin" &&
+      driver.userId.toString() !== session.userId
+    ) {
       return { error: "Unauthorized" };
     }
 
     // Check if driver is assigned to any trucks
     const Truck = (await import("@/app/lib/models/Truck")).default;
     const trucksWithDriver = await Truck.find({ drivers: driverId });
-    
+
     if (trucksWithDriver.length > 0) {
-      return { 
-        error: `Cannot delete driver. This driver is assigned to ${trucksWithDriver.length} truck(s). Please remove the driver from trucks first.` 
+      return {
+        error: `Cannot delete driver. This driver is assigned to ${trucksWithDriver.length} truck(s). Please remove the driver from trucks first.`,
       };
     }
 

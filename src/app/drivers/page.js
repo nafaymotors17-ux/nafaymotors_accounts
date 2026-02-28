@@ -58,7 +58,8 @@ export default function DriversPage() {
 
   const refresh = useCallback(() => {
     queryClient.refetchQueries({ queryKey: DRIVERS_QUERY_KEY });
-    if (isSuperAdmin && showForm) queryClient.refetchQueries({ queryKey: USERS_SELECTION_QUERY_KEY });
+    if (isSuperAdmin && showForm)
+      queryClient.refetchQueries({ queryKey: USERS_SELECTION_QUERY_KEY });
   }, [queryClient, isSuperAdmin, showForm]);
 
   const driversQueryKey = [...DRIVERS_QUERY_KEY, userId];
@@ -125,7 +126,7 @@ export default function DriversPage() {
   const totalPages = Math.max(1, Math.ceil(filteredDrivers.length / PER_PAGE));
   const paginatedDrivers = useMemo(
     () => filteredDrivers.slice((page - 1) * PER_PAGE, page * PER_PAGE),
-    [filteredDrivers, page]
+    [filteredDrivers, page],
   );
 
   useEffect(() => {
@@ -167,12 +168,19 @@ export default function DriversPage() {
       const d = data.driver;
       if (d) {
         const newDriver = { ...d, _id: d._id?.toString?.() ?? d._id };
-        queryClient.setQueryData(driversQueryKey, (old) => [...(old || []), newDriver]);
+        queryClient.setQueryData(driversQueryKey, (old) => [
+          ...(old || []),
+          newDriver,
+        ]);
       }
       setToast({ message: "Driver created successfully", type: "success" });
       handleCloseForm();
     },
-    onError: (err) => setToast({ message: err?.message || "Failed to create driver", type: "error" }),
+    onError: (err) =>
+      setToast({
+        message: err?.message || "Failed to create driver",
+        type: "error",
+      }),
   });
 
   const updateMutation = useMutation({
@@ -186,13 +194,21 @@ export default function DriversPage() {
       if (d) {
         const id = d._id?.toString?.() ?? d._id;
         queryClient.setQueryData(driversQueryKey, (old) =>
-          (old || []).map((dr) => ((dr._id?.toString?.() ?? dr._id) === id ? { ...dr, ...d, _id: id } : dr))
+          (old || []).map((dr) =>
+            (dr._id?.toString?.() ?? dr._id) === id
+              ? { ...dr, ...d, _id: id }
+              : dr,
+          ),
         );
       }
       setToast({ message: "Driver updated successfully", type: "success" });
       handleCloseForm();
     },
-    onError: (err) => setToast({ message: err?.message || "Failed to update driver", type: "error" }),
+    onError: (err) =>
+      setToast({
+        message: err?.message || "Failed to update driver",
+        type: "error",
+      }),
   });
 
   const deleteMutation = useMutation({
@@ -204,11 +220,15 @@ export default function DriversPage() {
       }
       const id = driverId?.toString?.() ?? driverId;
       queryClient.setQueryData(driversQueryKey, (old) =>
-        (old || []).filter((dr) => (dr._id?.toString?.() ?? dr._id) !== id)
+        (old || []).filter((dr) => (dr._id?.toString?.() ?? dr._id) !== id),
       );
       setToast({ message: "Driver deleted successfully", type: "success" });
     },
-    onError: (err) => setToast({ message: err?.message || "Failed to delete driver", type: "error" }),
+    onError: (err) =>
+      setToast({
+        message: err?.message || "Failed to delete driver",
+        type: "error",
+      }),
   });
 
   const handleSubmit = (e) => {
